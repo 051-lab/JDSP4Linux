@@ -21,8 +21,9 @@ int main(void)
 	LiveProgEnable(jdsp);
 
 	JamesDSPSetSampleRate(jdsp, 44100.0f, 1);
-	float *rate = NSEEL_VM_getvar(jdsp->eel.vm, "srate");
-	float *initialRate = NSEEL_VM_getvar(jdsp->eel.vm, "initialRate");
+	LiveProg *pg = JamesDSPGetCurrentLiveProgForTests(jdsp);
+	float *rate = NSEEL_VM_getvar(pg->vm, "srate");
+	float *initialRate = NSEEL_VM_getvar(pg->vm, "initialRate");
 	assert(rate && initialRate);
 	assert(fabsf(jdsp->trueSampleRate - 44100.0f) < 0.1f);
 	assert(fabsf(jdsp->fs - 44100.0f) < 0.1f);
@@ -39,7 +40,8 @@ int main(void)
 		"position += 1; position >= delaySamples ? position = 0;\n";
 	assert(LiveProgStringParser(jdsp, delayProgram, error, sizeof(error)) > 0);
 	LiveProgEnable(jdsp);
-	float *delaySamples = NSEEL_VM_getvar(jdsp->eel.vm, "delaySamples");
+	pg = JamesDSPGetCurrentLiveProgForTests(jdsp);
+	float *delaySamples = NSEEL_VM_getvar(pg->vm, "delaySamples");
 	assert(delaySamples && *delaySamples == 44.0f);
 	for (size_t sample = 0; sample < 64; ++sample)
 	{
@@ -51,7 +53,8 @@ int main(void)
 		assert(fabsf(jdsp->tmpBuffer[0][sample] - (sample == 44 ? 1.0f : 0.0f)) < 0.0001f);
 
 	JamesDSPSetSampleRate(jdsp, 96000.0f, 0);
-	delaySamples = NSEEL_VM_getvar(jdsp->eel.vm, "delaySamples");
+	pg = JamesDSPGetCurrentLiveProgForTests(jdsp);
+	delaySamples = NSEEL_VM_getvar(pg->vm, "delaySamples");
 	assert(fabsf(jdsp->trueSampleRate - 96000.0f) < 0.1f);
 	assert(fabsf(jdsp->fs - 48000.0f) < 0.1f);
 	assert(delaySamples && *delaySamples == 48.0f);
@@ -74,7 +77,8 @@ int main(void)
 	for (size_t rateIndex = 0; rateIndex < 2; ++rateIndex)
 	{
 		JamesDSPSetSampleRate(jdsp, deviceRates[rateIndex], 0);
-		float *alpha = NSEEL_VM_getvar(jdsp->eel.vm, "alpha");
+		pg = JamesDSPGetCurrentLiveProgForTests(jdsp);
+		float *alpha = NSEEL_VM_getvar(pg->vm, "alpha");
 		assert(alpha);
 		const float expectedAlpha = expf(-6.283185307179586f * 1000.0f / internalRates[rateIndex]);
 		assert(fabsf(*alpha - expectedAlpha) < 0.000001f);

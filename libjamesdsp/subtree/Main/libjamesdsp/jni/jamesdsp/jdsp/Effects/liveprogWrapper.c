@@ -8,6 +8,36 @@ void NSEEL_HOSTSTUB_LeaveMutex() { }
 #include <string.h>
 
 static pthread_mutex_t liveProgCompileMutex = PTHREAD_MUTEX_INITIALIZER;
+static void LiveProgDestroyState(LiveProg *pg);
+
+static LiveProg *LiveProgCurrent(const JamesDSPLib *jdsp)
+{
+	return __atomic_load_n(&jdsp->liveProgCurrent, __ATOMIC_ACQUIRE);
+}
+
+static void LiveProgPublish(JamesDSPLib *jdsp, LiveProg *candidate)
+{
+	LiveProg *previous = __atomic_exchange_n(&jdsp->liveProgCurrent, candidate, __ATOMIC_ACQ_REL);
+	if (previous)
+	{
+		previous->retiredNext = jdsp->liveProgRetired;
+		jdsp->liveProgRetired = previous;
+	}
+}
+
+static void LiveProgDestroyRetired(JamesDSPLib *jdsp)
+{
+	LiveProg *retired = jdsp->liveProgRetired;
+	jdsp->liveProgRetired = 0;
+	while (retired)
+	{
+		LiveProg *next = retired->retiredNext;
+		LiveProgDestroyState(retired);
+		if (retired != &jdsp->eel)
+			free(retired);
+		retired = next;
+	}
+}
 
 #ifdef JDSP_TEST_HOOKS
 #include <stdatomic.h>
@@ -34,6 +64,11 @@ int JamesDSPLiveProgLoadStartedForTests(void)
 int JamesDSPLiveProgMaxConcurrentLoadsForTests(void)
 {
 	return atomic_load(&liveProgLoadMaxActive);
+}
+
+LiveProg *JamesDSPGetCurrentLiveProgForTests(JamesDSPLib *jdsp)
+{
+	return jdsp ? LiveProgCurrent(jdsp) : 0;
 }
 #endif
 
@@ -189,18 +224,30 @@ static int LiveProgInitializeState(LiveProg *pg, float sampleRate)
 void LiveProgConstructor(JamesDSPLib *jdsp)
 {
 	LiveProgInitializeState(&jdsp->eel, jdsp->fs);
+	jdsp->eel.retiredNext = 0;
+	jdsp->liveProgRetired = 0;
+	__atomic_store_n(&jdsp->liveProgCurrent, &jdsp->eel, __ATOMIC_RELEASE);
 }
 
 void LiveProgDestructor(JamesDSPLib *jdsp)
 {
-	LiveProgDestroyState(&jdsp->eel);
+	LiveProg *current = __atomic_exchange_n(&jdsp->liveProgCurrent, 0, __ATOMIC_ACQ_REL);
+	if (current && current != &jdsp->eel)
+	{
+		LiveProgDestroyState(current);
+		free(current);
+	}
+	LiveProgDestroyRetired(jdsp);
+	if (current == &jdsp->eel || jdsp->eel.vm)
+		LiveProgDestroyState(&jdsp->eel);
 }
 
 void LiveProgEnable(JamesDSPLib *jdsp)
 {
-	if (jdsp->eel.vmFs && jdsp->eel.compileSucessfully)
+	LiveProg *pg = LiveProgCurrent(jdsp);
+	if (pg && pg->vmFs && pg->compileSucessfully)
 	{
-		*jdsp->eel.vmFs = jdsp->fs;
+		*pg->vmFs = jdsp->fs;
 		jdsp->liveprogEnabled = 1;
 	}
 	else
@@ -214,9 +261,9 @@ void LiveProgDisable(JamesDSPLib *jdsp)
 
 void LiveProgRefreshSampleRate(JamesDSPLib *jdsp, float sampleRate)
 {
-	if (!jdsp || !jdsp->eel.vm || !jdsp->eel.compileSucessfully)
+	LiveProg *pg = jdsp ? LiveProgCurrent(jdsp) : 0;
+	if (!pg || !pg->vm || !pg->compileSucessfully)
 		return;
-	LiveProg *pg = &jdsp->eel;
 	if (pg->vmFs)
 		*pg->vmFs = sampleRate;
 	if (pg->codehandleInit)
@@ -354,12 +401,17 @@ int LiveProgStringParser(JamesDSPLib *jdsp, char *eelCode, char *errorBuffer, si
 			candidateRate = jdsp->fs;
 			jdsp_unlock(jdsp);
 			pthread_mutex_lock(&liveProgCompileMutex);
-			LiveProg candidate;
-			if (!LiveProgInitializeState(&candidate, candidateRate))
+			LiveProg *candidate = (LiveProg*)calloc(1, sizeof(*candidate));
+			if (!candidate || !LiveProgInitializeState(candidate, candidateRate))
+			{
+				if (candidate)
+					LiveProgDestroyState(candidate);
+				free(candidate);
 				errorMsg = -7;
+			}
 			else
 			{
-				errorMsg = LiveProgLoadCode(&candidate, candidateRate,
+				errorMsg = LiveProgLoadCode(candidate, candidateRate,
 					codeText[LIVEPROG_SECTION_INIT], codeText[LIVEPROG_SECTION_SLIDER],
 					codeText[LIVEPROG_SECTION_BLOCK], codeText[LIVEPROG_SECTION_SAMPLE]);
 				if (errorMsg > 0)
@@ -374,23 +426,26 @@ int LiveProgStringParser(JamesDSPLib *jdsp, char *eelCode, char *errorBuffer, si
 					}
 					else
 					{
-					LiveProg previous = jdsp->eel;
-					candidate.active = previous.active;
-					jdsp->eel = candidate;
-					memset(&candidate, 0, sizeof(candidate));
+					LiveProg *previous = LiveProgCurrent(jdsp);
+					candidate->active = previous ? previous->active : 0;
+					candidate->retiredNext = 0;
+					LiveProgPublish(jdsp, candidate);
 					jdsp_unlock(jdsp);
-					LiveProgDestroyState(&previous);
 					}
 					if (errorMsg <= 0)
 						jdsp_unlock(jdsp);
 				}
 				else
 				{
-					const char *error = NSEEL_code_getcodeerror(candidate.vm);
+					const char *error = NSEEL_code_getcodeerror(candidate->vm);
 					if (error && errorBuffer && errorBufferSize)
 						snprintf(errorBuffer, errorBufferSize, "%s", error);
 				}
-				LiveProgDestroyState(&candidate);
+				if (errorMsg <= 0)
+				{
+					LiveProgDestroyState(candidate);
+					free(candidate);
+				}
 			}
 			pthread_mutex_unlock(&liveProgCompileMutex);
 		}
@@ -412,7 +467,9 @@ int LiveProgSetVariable(JamesDSPLib *jdsp, const char *name, float value)
 		if (!(isalnum((unsigned char)name[i]) || name[i] == '_'))
 			return 0;
 	jdsp_lock(jdsp);
-	LiveProg *pg = &jdsp->eel;
+	LiveProg *pg = LiveProgCurrent(jdsp);
+	if (!pg)
+		return 0;
 	float *variable = pg->vm && pg->compileSucessfully ? NSEEL_VM_getvar(pg->vm, name) : 0;
 	if (!variable)
 	{
@@ -451,7 +508,9 @@ int LiveProgSetVariable(JamesDSPLib *jdsp, const char *name, float value)
 
 void LiveProgProcess(JamesDSPLib *jdsp, size_t n)
 {
-	LiveProg *eel = &jdsp->eel;
+	LiveProg *eel = LiveProgCurrent(jdsp);
+	if (!eel)
+		return;
 	if (eel->compileSucessfully && eel->active)
 	{
 		*eel->samplesBlock = (float)n;

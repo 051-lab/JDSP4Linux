@@ -8,6 +8,7 @@ contains(CONFIG, DEBUG_TSAN) {
 }
 TEMPLATE = app
 TARGET = rate_transition_test
+DEFINES += JDSP_TEST_HOOKS
 INCLUDEPATH += .. ../subtree/Main/libjamesdsp/jni/jamesdsp/jdsp
 SOURCES += rate_transition_test.c
 LIBS += -L../ -llibjamesdsp -lm -ldl

@@ -497,10 +497,10 @@ void JamesDSPProcess(JamesDSPLib *jdsp, size_t n)
 	// Viper DDC
 	if (jdsp->ddcEnabled)
 		DDCProcess(jdsp, n);
+	jdsp_unlock(jdsp);
 	// Live programmable
 	if (jdsp->liveprogEnabled)
 		LiveProgProcess(jdsp, n);
-	jdsp_unlock(jdsp);
 	// BS2B
 	/* The enabled flag and the selected convolver are one publication unit.
 	 * Read both under the same mutex CrossfeedEnable/CrossfeedDisable use;
@@ -564,10 +564,10 @@ void JamesDSPProcessCheckBenchmarkReady(JamesDSPLib *jdsp, size_t n)
 	// Viper DDC
 	if (jdsp->ddcEnabled)
 		DDCProcess(jdsp, n);
+	jdsp_unlock(jdsp);
 	// Live programmable
 	if (jdsp->liveprogEnabled)
 		LiveProgProcess(jdsp, n);
-	jdsp_unlock(jdsp);
 	// BS2B
 	jdsp_lock(jdsp);
 	if (jdsp->crossfeedEnabled)

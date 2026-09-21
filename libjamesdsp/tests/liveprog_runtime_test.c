@@ -8,7 +8,8 @@
 
 static float *variable(JamesDSPLib *jdsp, const char *name)
 {
-	return jdsp->eel.vm ? NSEEL_VM_getvar(jdsp->eel.vm, name) : 0;
+	LiveProg *pg = JamesDSPGetCurrentLiveProgForTests(jdsp);
+	return pg && pg->vm ? NSEEL_VM_getvar(pg->vm, name) : 0;
 }
 
 static int load_file(JamesDSPLib *jdsp, const char *path)
@@ -180,9 +181,12 @@ int main(int argc, char **argv)
 	assert(LiveProgStringParser(jdsp, valid, error, sizeof(error)) > 0);
 	LiveProgEnable(jdsp);
 	if (!jdsp->liveprogEnabled)
+	{
+		LiveProg *pg = JamesDSPGetCurrentLiveProgForTests(jdsp);
 		fprintf(stderr, "baseline enable failed: vmFs=%p compile=%d fs=%g vmRate=%g\n",
-			(void*)jdsp->eel.vmFs, jdsp->eel.compileSucessfully, jdsp->fs,
-			jdsp->eel.vmFs ? *jdsp->eel.vmFs : -1.0f);
+			(void*)pg->vmFs, pg->compileSucessfully, jdsp->fs,
+			pg->vmFs ? *pg->vmFs : -1.0f);
+	}
 	assert(jdsp->liveprogEnabled);
 	assert(variable(jdsp, "blocks") && *variable(jdsp, "blocks") == 0);
 	LiveProgDisable(jdsp);

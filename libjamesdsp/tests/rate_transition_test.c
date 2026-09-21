@@ -9,7 +9,8 @@ extern void JamesDSPProcess(JamesDSPLib *jdsp, size_t n);
 
 static float value(JamesDSPLib *jdsp, const char *name)
 {
-	float *var = jdsp->eel.vm ? NSEEL_VM_getvar(jdsp->eel.vm, name) : 0;
+	LiveProg *pg = JamesDSPGetCurrentLiveProgForTests(jdsp);
+	float *var = pg && pg->vm ? NSEEL_VM_getvar(pg->vm, name) : 0;
 	assert(var);
 	return *var;
 }

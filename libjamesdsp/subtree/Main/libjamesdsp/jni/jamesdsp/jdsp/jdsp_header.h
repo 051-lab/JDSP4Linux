@@ -409,6 +409,7 @@ typedef struct
 	NSEEL_CODEHANDLE codehandleInit, codehandleSlider, codehandleBlock, codehandleProcess;
 	float *vmFs, *samplesBlock, *input1, *input2;
 	LiveProgVariableOverride *hostOverrides;
+	struct LiveProg *retiredNext;
 	int compileSucessfully;
     int active;
 } LiveProg;
@@ -549,6 +550,11 @@ typedef struct dspsys
 	int liveprogEnabled;
 	size_t liveprogNonFiniteSamples;
 	LiveProg eel;
+	/* Liveprog generations are published atomically.  The callback only reads
+	 * the current generation; retired generations remain owned by the control
+	 * side until JamesDSPFree, after processing admission is closed. */
+	LiveProg *liveProgCurrent;
+	LiveProg *liveProgRetired;
 	// Arbitrary magnitude response
 	int arbitraryMagEnabled, arbMagForceRefresh;
 	arbitraryMagnitude arbMag;
@@ -602,6 +608,7 @@ extern size_t JamesDSPGetRefreshCallCountForTests(void);
 extern void JamesDSPSetLiveProgLoadDelayForTests(int delayMs);
 extern int JamesDSPLiveProgLoadStartedForTests(void);
 extern int JamesDSPLiveProgMaxConcurrentLoadsForTests(void);
+extern LiveProg *JamesDSPGetCurrentLiveProgForTests(JamesDSPLib *jdsp);
 #endif
 extern void JamesDSP_Load_benchmark(double *_c0, double *_c1);
 extern void JamesDSP_Save_benchmark(double *_c0, double *_c1);

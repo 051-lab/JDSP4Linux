@@ -3,6 +3,7 @@ TARGET = liveprog_runtime_test
 CONFIG += console
 CONFIG -= app_bundle
 CONFIG += sanitizer sanitize_address sanitize_undefined
+DEFINES += JDSP_TEST_HOOKS
 
 QT += core
 

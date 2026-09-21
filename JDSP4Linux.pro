@@ -2,8 +2,9 @@ TEMPLATE = subdirs
 
 SUBDIRS += \
     libjamesdsp \
-    libjamesdsp/tests \
+    liveprog_tests \
     src
 
-libjamesdsp/tests.depends = libjamesdsp
+liveprog_tests.subdir = libjamesdsp/tests
+liveprog_tests.depends = libjamesdsp
 src.depends = libjamesdsp

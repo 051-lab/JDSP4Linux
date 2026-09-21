@@ -364,7 +364,7 @@ static void processing_read_leave(JamesDSPLib *jdsp)
 	}
 }
 
-static void processing_pause(JamesDSPLib *jdsp)
+void processing_pause(JamesDSPLib *jdsp)
 {
 	uint32_t expected = 0;
 	while (!__atomic_compare_exchange_n(&jdsp->processingPaused, &expected, 1, 0,
@@ -377,7 +377,7 @@ static void processing_pause(JamesDSPLib *jdsp)
 		sched_yield();
 }
 
-static void processing_resume(JamesDSPLib *jdsp)
+void processing_resume(JamesDSPLib *jdsp)
 {
 	__atomic_store_n(&jdsp->processingPaused, 0, __ATOMIC_SEQ_CST);
 }
@@ -1326,7 +1326,7 @@ void JamesDSPSetSampleRate(JamesDSPLib *jdsp, float new_sample_rate, int forceRe
 	jdsp->trueSampleRate = new_sample_rate;
 	jdsp->fs = newFs;
 	jdsp->enableASRC = newEnableASRC;
-	LiveProgRefreshSampleRate(jdsp, jdsp->fs);
+	LiveProgRefreshSampleRatePaused(jdsp, jdsp->fs);
 	if (newEnableASRC)
 	{
 		const unsigned int asrc_taps = 32;

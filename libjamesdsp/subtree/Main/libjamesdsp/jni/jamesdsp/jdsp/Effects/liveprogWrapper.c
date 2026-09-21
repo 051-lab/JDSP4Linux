@@ -244,6 +244,9 @@ void LiveProgDestructor(JamesDSPLib *jdsp)
 
 void LiveProgEnable(JamesDSPLib *jdsp)
 {
+	if (!jdsp)
+		return;
+	processing_pause(jdsp);
 	LiveProg *pg = LiveProgCurrent(jdsp);
 	if (pg && pg->vmFs && pg->compileSucessfully)
 	{
@@ -252,14 +255,19 @@ void LiveProgEnable(JamesDSPLib *jdsp)
 	}
 	else
 		jdsp->liveprogEnabled = 0;
+	processing_resume(jdsp);
 }
 
 void LiveProgDisable(JamesDSPLib *jdsp)
 {
+	if (!jdsp)
+		return;
+	processing_pause(jdsp);
 	jdsp->liveprogEnabled = 0;
+	processing_resume(jdsp);
 }
 
-void LiveProgRefreshSampleRate(JamesDSPLib *jdsp, float sampleRate)
+void LiveProgRefreshSampleRatePaused(JamesDSPLib *jdsp, float sampleRate)
 {
 	LiveProg *pg = jdsp ? LiveProgCurrent(jdsp) : 0;
 	if (!pg || !pg->vm || !pg->compileSucessfully)
@@ -282,6 +290,15 @@ void LiveProgRefreshSampleRate(JamesDSPLib *jdsp, float sampleRate)
 		if (variable)
 			override->value = *variable;
 	}
+}
+
+void LiveProgRefreshSampleRate(JamesDSPLib *jdsp, float sampleRate)
+{
+	if (!jdsp)
+		return;
+	processing_pause(jdsp);
+	LiveProgRefreshSampleRatePaused(jdsp, sampleRate);
+	processing_resume(jdsp);
 }
 
 static int LiveProgLoadCode(LiveProg *pg, float sampleRate, const char *codeTextInit, const char *codeTextSlider,
@@ -466,14 +483,17 @@ int LiveProgSetVariable(JamesDSPLib *jdsp, const char *name, float value)
 	for (size_t i = 1; i < nameLength; i++)
 		if (!(isalnum((unsigned char)name[i]) || name[i] == '_'))
 			return 0;
-	jdsp_lock(jdsp);
+	processing_pause(jdsp);
 	LiveProg *pg = LiveProgCurrent(jdsp);
 	if (!pg)
+	{
+		processing_resume(jdsp);
 		return 0;
+	}
 	float *variable = pg->vm && pg->compileSucessfully ? NSEEL_VM_getvar(pg->vm, name) : 0;
 	if (!variable)
 	{
-		jdsp_unlock(jdsp);
+		processing_resume(jdsp);
 		return 0;
 	}
 	if (!pg->codehandleSlider)
@@ -481,7 +501,7 @@ int LiveProgSetVariable(JamesDSPLib *jdsp, const char *name, float value)
 		/* Legacy programs derive coefficients in @init.  The host must reload
 		 * the persisted source instead of treating this assignment as live-safe. */
 		*variable = value;
-		jdsp_unlock(jdsp);
+		processing_resume(jdsp);
 		return 0;
 	}
 	LiveProgVariableOverride *override = pg->hostOverrides;
@@ -492,7 +512,7 @@ int LiveProgSetVariable(JamesDSPLib *jdsp, const char *name, float value)
 		override = (LiveProgVariableOverride*)calloc(1, sizeof(*override));
 		if (!override)
 		{
-			jdsp_unlock(jdsp);
+			processing_resume(jdsp);
 			return 0;
 		}
 		memcpy(override->name, name, nameLength + 1);
@@ -502,7 +522,7 @@ int LiveProgSetVariable(JamesDSPLib *jdsp, const char *name, float value)
 	*variable = value;
 	NSEEL_code_execute(pg->codehandleSlider);
 	override->value = *variable;
-	jdsp_unlock(jdsp);
+	processing_resume(jdsp);
 	return 1;
 }
 

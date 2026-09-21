@@ -615,6 +615,8 @@ extern void JamesDSP_Save_benchmark(double *_c0, double *_c1);
 extern void JamesDSP_Start_benchmark();
 extern void jdsp_lock(JamesDSPLib *jdsp);
 extern void jdsp_unlock(JamesDSPLib *jdsp);
+extern void processing_pause(JamesDSPLib *jdsp);
+extern void processing_resume(JamesDSPLib *jdsp);
 extern void JamesDSPFree(JamesDSPLib *jdsp);
 extern void JamesDSPInit(JamesDSPLib *jdsp, int blockSizeMax, float sample_rate);
 extern void JamesDSPSetPostGain(JamesDSPLib *jdsp, double pGaindB);
@@ -666,6 +668,7 @@ extern int LiveProgSetVariable(JamesDSPLib *jdsp, const char *name, float value)
 extern void LiveProgEnable(JamesDSPLib *jdsp);
 extern void LiveProgDisable(JamesDSPLib *jdsp);
 extern void LiveProgRefreshSampleRate(JamesDSPLib *jdsp, float sampleRate);
+extern void LiveProgRefreshSampleRatePaused(JamesDSPLib *jdsp, float sampleRate);
 extern void LiveProgProcess(JamesDSPLib *jdsp, size_t n);
 // DDC
 extern void DDCConstructor(JamesDSPLib *jdsp);

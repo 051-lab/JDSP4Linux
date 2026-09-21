@@ -97,7 +97,8 @@ CONFIG += c++2a
         utils/AutoStartManager.h \
         utils/DesktopServices.h \
         utils/OverlayMsgProxy.h \
-        utils/StyleHelper.h
+        utils/StyleHelper.h \
+        utils/VisualTheme.h
 
     SOURCES += \
         interface/AnimatedJdspIcon.cpp \
@@ -126,7 +127,8 @@ CONFIG += c++2a
         utils/AutoStartManager.cpp \
         utils/DesktopServices.cpp \
         utils/OverlayMsgProxy.cpp \
-        utils/StyleHelper.cpp
+        utils/StyleHelper.cpp \
+        utils/VisualTheme.cpp
 
     FORMS += \
         interface/FileSelectionWidget.ui \
@@ -154,6 +156,7 @@ HEADERS += \
     data/EelParser.h \
     data/InitializableQMap.h \
     data/PresetManager.h \
+    data/SafeFileOperations.h \
     data/PresetProvider.h \
     data/PresetRule.h \
     data/model/AppItemModel.h \
@@ -182,6 +185,7 @@ SOURCES += \
     data/AssetManager.cpp \
     data/EelParser.cpp \
     data/PresetManager.cpp \
+    data/SafeFileOperations.cpp \
     data/PresetProvider.cpp \
     data/model/AppItemModel.cpp \
     data/model/DeviceListModel.cpp \
@@ -200,7 +204,7 @@ SOURCES += \
 
 DISTFILES += utils/dbus/manifest.xml
 
-RESOURCES += \
+    RESOURCES += \
     ../resources/resources.qrc
 
 TRANSLATIONS += ../resources/translations/jamesdsp_ar.ts \

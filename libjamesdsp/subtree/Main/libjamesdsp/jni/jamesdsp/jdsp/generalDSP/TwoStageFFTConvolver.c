@@ -96,12 +96,10 @@ inline void task_wait1x1(TwoStageFFTConvolver1x1 *conv)
 inline void task_wait2x4x2(TwoStageFFTConvolver2x4x2 *conv)
 {
 	pt_info2x4x2 *info = &conv->shared_info;
-	while (1)
-	{
+	pthread_mutex_lock(&(info->boss_mtx));
+	while (IDLE != info->state)
 		pthread_cond_wait(&(info->boss_cond), &(info->boss_mtx));
-		if (IDLE == info->state)
-			break;
-	}
+	pthread_mutex_unlock(&(info->boss_mtx));
 }
 inline void task_wait2x2(TwoStageFFTConvolver2x2 *conv)
 {
@@ -157,7 +155,6 @@ void thread_exit2x4x2(TwoStageFFTConvolver2x4x2 *conv)
 	pthread_join(conv->threads, NULL);
 	pthread_mutex_destroy(&(info->work_mtx));
 	pthread_cond_destroy(&(info->work_cond));
-	pthread_mutex_unlock(&(info->boss_mtx));
 	pthread_mutex_destroy(&(info->boss_mtx));
 	pthread_cond_destroy(&(info->boss_cond));
 }
@@ -369,7 +366,6 @@ void thread_init2x4x2(TwoStageFFTConvolver2x4x2 *conv)
 	pthread_mutex_init(&(info->work_mtx), NULL);
 	pthread_cond_init(&(info->boss_cond), NULL);
 	pthread_mutex_init(&(info->boss_mtx), NULL);
-	pthread_mutex_lock(&(info->boss_mtx));
 	info->_tailConvolver = &conv->_tailConvolver;
 	info->_backgroundProcessingInput[0] = conv->_backgroundProcessingInput[0];
 	info->_backgroundProcessingInput[1] = conv->_backgroundProcessingInput[1];

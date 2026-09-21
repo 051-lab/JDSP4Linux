@@ -9,7 +9,29 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QMessageBox>
+#include <algorithm>
+#include <cmath>
 #include <eeleditor.h>
+
+static int decimalPlaces(float value)
+{
+    for (int places = 0; places <= 6; ++places)
+    {
+        const double scale = std::pow(10.0, places);
+        if (std::abs(static_cast<double>(value) * scale -
+                     std::round(static_cast<double>(value) * scale)) < 0.000001)
+            return places;
+    }
+    return 6;
+}
+
+static int sliderScale(const EELNumberRangeProperty<float> *property)
+{
+    const int places = std::max({decimalPlaces(property->getMinimum()),
+                                 decimalPlaces(property->getMaximum()),
+                                 decimalPlaces(property->getStep())});
+    return static_cast<int>(std::pow(10.0, std::min(places, 6)));
+}
 
 LiveprogSelectionWidget::LiveprogSelectionWidget(QWidget *parent) :
     QWidget(parent),
@@ -63,11 +85,10 @@ void LiveprogSelectionWidget::coupleIDE(EELEditor* editor)
 
 void LiveprogSelectionWidget::onFileChanged(const QString& path)
 {
-    if (QFileInfo::exists(path) && QFileInfo(path).isFile())
-    {
-        _currentLiveprog = path;
-    }
+    if (!QFileInfo::exists(path) || !QFileInfo(path).isFile())
+        return;
 
+    _currentLiveprog = path;
     loadProperties(_currentLiveprog);
 
     emit scriptChanged(path);
@@ -100,18 +121,7 @@ void LiveprogSelectionWidget::setCurrentLiveprog(const QString &path)
 void LiveprogSelectionWidget::updateFromEelEditor(QString path)
 {
     this->setCurrentLiveprog(path);
-
-    if (_eelParser->getPath() == path)
-    {
-        loadProperties(_eelParser->getPath());
-    }
-    else
-    {
-        EELParser parser;
-        parser.loadFile(path);
-
-        emit liveprogReloadRequested();
-    }
+    emit liveprogReloadRequested();
 }
 
 void LiveprogSelectionWidget::updateList()
@@ -163,7 +173,15 @@ void LiveprogSelectionWidget::loadProperties(const QString& path)
         return;
     }
 
-    _eelParser->loadFile(path);
+    if (!_eelParser->loadFile(path))
+    {
+        ui->reset->setVisible(false);
+        ui->editScript->setText(tr("Create new script"));
+        ui->name->setText(tr("Unable to load script"));
+        QLabel *lbl = new QLabel(tr("The selected EEL file could not be read."), this);
+        ui->ui_container->layout()->addWidget(lbl);
+        return;
+    }
     ui->name->setText(_eelParser->getDescription());
     ui->editScript->setText(tr("Edit script"));
 
@@ -175,34 +193,43 @@ void LiveprogSelectionWidget::loadProperties(const QString& path)
         {
             EELNumberRangeProperty<float> *prop        = dynamic_cast<EELNumberRangeProperty<float>*>(propbase);
             bool                           handleAsInt = std::floor(prop->getStep()) == prop->getStep();
+            const int                      scale       = sliderScale(prop);
             QLabel                        *lbl         = new QLabel(this);
             QAnimatedSlider               *sld         = new QAnimatedSlider(this);
             lbl->setText(prop->getDescription());
 
-            sld->setMinimum(prop->getMinimum() * 100);
-            sld->setMaximum(prop->getMaximum() * 100);
-            sld->setValue(prop->getMinimum() * 100);
-            sld->setValueA(prop->getValue() * 100);
+            sld->setMinimum(qRound(prop->getMinimum() * scale));
+            sld->setMaximum(qRound(prop->getMaximum() * scale));
+            sld->setSingleStep(1);
+            sld->setValue(qRound(prop->getMinimum() * scale));
+            sld->setValueA(qRound(prop->getValue() * scale));
             sld->setOrientation(Qt::Horizontal);
             sld->setToolTip(QString::number(prop->getValue()));
             sld->setProperty("isCustomEELProperty", true);
             sld->setProperty("handleAsInt", handleAsInt);
-            sld->setProperty("divisor", 100);
+            sld->setProperty("divisor", scale);
 
             sld->setObjectName(prop->getKey());
-            sld->installEventFilter(new ScrollFilter);
+            sld->installEventFilter(new ScrollFilter(sld));
 
             ui->ui_container->layout()->addWidget(lbl);
             ui->ui_container->layout()->addWidget(sld);
 
             connect(sld, &QAnimatedSlider::stringChanged, this, &LiveprogSelectionWidget::unitLabelUpdateRequested);
             connect(sld, &QAbstractSlider::sliderReleased, [this, sld, prop] {
-                float val = sld->valueA() / 100.f;
+                const int divisor = sld->property("divisor").toInt();
+                float val = sld->valueA() / static_cast<float>(divisor > 0 ? divisor : 1);
                 prop->setValue(val);
-                _eelParser->manipulateProperty(prop);
+                if (!_eelParser->manipulateProperty(prop))
+                {
+                    const QString error = _eelParser->getLastSaveError();
+                    emit unitLabelUpdateRequested(error.isEmpty()
+                        ? tr("Unable to save the EEL parameter change.") : error);
+                    return;
+                }
                 ui->reset->setEnabled(_eelParser->canLoadDefaults());
 
-                emit liveprogReloadRequested();
+                emit liveprogVariableChanged(prop->getKey(), val);
             });
         }
         else if (propbase->getType() == EELPropertyType::List)
@@ -217,7 +244,7 @@ void LiveprogSelectionWidget::loadProperties(const QString& path)
             cbx->setProperty("isCustomEELProperty", true);
 
             cbx->setObjectName(prop->getKey());
-            cbx->installEventFilter(new ScrollFilter);
+            cbx->installEventFilter(new ScrollFilter(cbx));
 
             ui->ui_container->layout()->addWidget(lbl);
             ui->ui_container->layout()->addWidget(cbx);
@@ -227,10 +254,16 @@ void LiveprogSelectionWidget::loadProperties(const QString& path)
                     return;
 
                 prop->setValue(index);
-                _eelParser->manipulateProperty(prop);
+                if (!_eelParser->manipulateProperty(prop))
+                {
+                    const QString error = _eelParser->getLastSaveError();
+                    emit unitLabelUpdateRequested(error.isEmpty()
+                        ? tr("Unable to save the EEL parameter change.") : error);
+                    return;
+                }
                 ui->reset->setEnabled(_eelParser->canLoadDefaults());
 
-                emit liveprogReloadRequested();
+                emit liveprogVariableChanged(prop->getKey(), (float)index);
             });
         }
     }

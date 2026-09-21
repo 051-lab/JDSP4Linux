@@ -20,6 +20,7 @@ AppConfig::AppConfig()
     DEFINE_KEY(LiveprogAutoExtract, true);
 
     DEFINE_KEY(Theme, "Fusion");
+    DEFINE_KEY(VisualTheme, "classic");
     DEFINE_KEY(ThemeColors, "Default");
     DEFINE_KEY(ThemeColorsCustom, "");
     DEFINE_KEY(ThemeColorsCustomWhiteIcons, false);
@@ -151,6 +152,7 @@ void AppConfig::notify(const Key &key, const QVariant &value)
     switch(key)
     {
     case Theme:
+    case VisualTheme:
     case ThemeColors:
     case ThemeColorsCustom:
     case ThemeColorsCustomWhiteIcons:

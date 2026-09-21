@@ -1,10 +1,13 @@
 #include "ConfigIO.h"
 
-#include <fstream>
+#include <QSaveFile>
+#include <QTextStream>
 #include <QRegularExpression>
+#include <fstream>
 #include <string>
 
 #include "utils/QtCompat.h"
+#include "utils/Log.h"
 
 QString ConfigIO::writeString(const QVariantMap &map)
 {
@@ -18,33 +21,43 @@ QString ConfigIO::writeString(const QVariantMap &map)
 	return ret;
 }
 
-void ConfigIO::writeFile(const QString &    path,
+bool ConfigIO::writeFile(const QString &    path,
                          const QVariantMap &map,
                          const QString &    prefix)
 {
-	std::ofstream myfile(path.toUtf8().constData());
-
-	if (myfile.is_open())
+	QSaveFile file(path);
+	if(!file.open(QIODevice::WriteOnly | QIODevice::Text))
 	{
-		if (!prefix.isEmpty())
-		{
-			myfile << prefix.toUtf8().constData() << std::endl;
-		}
-
-		for (const auto &e : map.keys())
-		{
-            if (QtCompat::variantTypeId(map.value(e)) == QMetaType::Float)
-			{
-				myfile << e.toStdString() << "=" << QString::number(map.value(e).toDouble(), 'f', 5).toStdString() << std::endl;
-			}
-			else
-			{
-				myfile << e.toStdString() << "=" << map.value(e).toString().toStdString() << std::endl;
-			}
-		}
-
-		myfile.close();
+		Log::error(QString("Unable to open configuration for atomic write: %1").arg(path));
+		return false;
 	}
+
+	QTextStream stream(&file);
+
+	if (!prefix.isEmpty())
+	{
+		stream << prefix << Qt::endl;
+	}
+
+	for (const auto &e : map.keys())
+	{
+		if (QtCompat::variantTypeId(map.value(e)) == QMetaType::Float)
+		{
+			stream << e << '=' << QString::number(map.value(e).toDouble(), 'f', 5) << Qt::endl;
+		}
+		else
+		{
+			stream << e << '=' << map.value(e).toString() << Qt::endl;
+		}
+	}
+
+	stream.flush();
+	if(stream.status() != QTextStream::Ok || !file.flush() || !file.commit())
+	{
+		Log::error(QString("Unable to commit atomic configuration write: %1").arg(path));
+		return false;
+	}
+	return true;
 }
 
 QVariantMap ConfigIO::readFile(const QString &path)

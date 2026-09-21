@@ -23,6 +23,7 @@
 #include <giomm.h>
 #include <pipewire/filter.h>
 // #include <spa/param/latency-utils.h>
+#include <atomic>
 #include <mutex>
 
 #include "PwPipelineManager.h"
@@ -71,9 +72,9 @@ class PwPluginBase {
 
   bool enable_probe = false;
 
-  uint32_t n_samples = 0U;
+  std::atomic<uint32_t> n_samples = 0U;
 
-  uint32_t rate = 0U;
+  std::atomic<uint32_t> rate = 0U;
 
   bool bypass = false;
 
@@ -90,6 +91,11 @@ class PwPluginBase {
   std::chrono::time_point<std::chrono::system_clock> clock_start;
 
   std::vector<float> dummy_left, dummy_right;
+
+  std::atomic<uint32_t> requested_n_samples = 0U;
+  std::atomic<uint32_t> requested_rate = 0U;
+  std::atomic<bool> format_ready = false;
+  Glib::Dispatcher format_change_dispatcher;
 
   [[nodiscard]] auto get_node_id() const -> uint32_t;
 
@@ -142,6 +148,8 @@ class PwPluginBase {
 
   void notify();
 
+  void apply_pending_format();
+
   void get_peaks(const float* left_in,
                  const float* right_in,
                  float* left_out,
@@ -153,6 +161,7 @@ class PwPluginBase {
 
   float input_peak_left = util::minimum_linear_level, input_peak_right = util::minimum_linear_level;
   float output_peak_left = util::minimum_linear_level, output_peak_right = util::minimum_linear_level;
+
 };
 
 #endif

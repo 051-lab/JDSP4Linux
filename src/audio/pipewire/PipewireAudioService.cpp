@@ -165,12 +165,10 @@ std::vector<IOutputDevice> PipewireAudioService::sinkDevices()
     for(const auto &[id, node] : mgr.get()->node_map)
     {
         if(node.media_class == "Audio/Sink" && node.name != "jamesdsp_sink"){
-            for(const auto &blacklist : mgr.get()->blocklist_node_name){
-                if(node.name == blacklist)
-                {
-                    continue;
-                }
-            }
+            const bool blocked = std::ranges::any_of(mgr.get()->blocklist_node_name,
+                                                     [&node](const auto& blacklist) { return node.name == blacklist; });
+            if (blocked)
+                continue;
 
             devices.push_back(PwDevice(node));
         }
@@ -192,4 +190,3 @@ DspStatus PipewireAudioService::status()
 {
     return plugin->status();
 }
-

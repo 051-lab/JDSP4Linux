@@ -106,7 +106,10 @@ void InitSpectralInterpolator(char *octaveSmooth, unsigned int fcLen, unsigned i
 	unsigned int i;
 	unsigned int idxLen = fcLen + 1;
 	unsigned int *indexList = (unsigned int*)malloc((idxLen << 1) * sizeof(unsigned int));
-	double *levels = (double*)malloc((idxLen + 3) * sizeof(double));
+	// mLevel_2 reads levels[i + 1] while filling the final i == idxLen + 2
+	// entry, so the interpolation scratch table needs one sentinel beyond the
+	// number of stored output levels.
+	double *levels = (double*)malloc((idxLen + 4) * sizeof(double));
 	float *multiplicationPrecompute = (float*)malloc(idxLen * sizeof(float));
 	unsigned int *val = (unsigned int*)(octaveSmooth);
 	*val = arrayLen;

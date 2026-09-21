@@ -35,6 +35,7 @@ public:
     bool update(DspConfig* config, bool ignoreCache = false);
     void updateFromCache();
     void reloadLiveprog(DspConfig* config = nullptr);
+    bool liveprogActive() const;
     std::vector<EelVariable> enumEelVariables();
     bool manipulateEelVariable(const char *name, float value);
     void freezeLiveprogExecution(bool freeze);
@@ -68,6 +69,6 @@ private:
 };
 
 /* C interop function */
-static void receiveLiveprogStdOut(const char* buffer, void* userData);
+void receiveLiveprogStdOut(const char* buffer, void* userData);
 
 #endif // DSPHOST_H

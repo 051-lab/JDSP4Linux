@@ -89,7 +89,12 @@ namespace ColorStyleProvider
             << QPair<CS_UNIT>("black", ColorStyle(true, Qt::black, QColor(28, 28, 28), QColor(222, 222, 222), QColor(132, 132, 132), Qt::black, QColor(140, 140, 140)))
             << QPair<CS_UNIT>("darkgreen", ColorStyle(true, QColor(30, 30, 30), QColor(27, 34, 36), QColor(197, 209, 217), QColor(153, 199, 190), Qt::black, QColor(100, 100, 100)))
             << QPair<CS_UNIT>("green", ColorStyle(true, QColor(6, 29, 12), QColor(0, 12, 0), Qt::white, QColor(86, 191, 121), Qt::black, QColor(102, 111, 102)))
-            << QPair<CS_UNIT>("stone", ColorStyle(true, QColor(27, 36, 40), QColor(34, 45, 50), Qt::white, QColor(165, 206, 255), Qt::black, QColor(115, 126, 129)));
+            << QPair<CS_UNIT>("stone", ColorStyle(true, QColor(27, 36, 40), QColor(34, 45, 50), Qt::white, QColor(165, 206, 255), Qt::black, QColor(115, 126, 129)))
+            << QPair<CS_UNIT>("dracula", ColorStyle(true, QColor(40, 42, 54), QColor(52, 55, 70), QColor(248, 248, 242), QColor(189, 147, 249), QColor(40, 42, 54), QColor(98, 114, 164)))
+            << QPair<CS_UNIT>("nord", ColorStyle(true, QColor(46, 52, 64), QColor(59, 66, 82), QColor(236, 239, 244), QColor(136, 192, 208), QColor(46, 52, 64), QColor(76, 86, 106)))
+            << QPair<CS_UNIT>("gruvbox", ColorStyle(true, QColor(40, 40, 40), QColor(60, 56, 54), QColor(235, 219, 178), QColor(250, 189, 47), QColor(40, 40, 40), QColor(146, 131, 116)))
+            << QPair<CS_UNIT>("tokyonight", ColorStyle(true, QColor(26, 27, 38), QColor(36, 40, 59), QColor(192, 202, 245), QColor(122, 162, 247), QColor(26, 27, 38), QColor(86, 95, 137)))
+            << QPair<CS_UNIT>("catppuccin", ColorStyle(true, QColor(30, 30, 46), QColor(49, 50, 68), QColor(205, 214, 244), QColor(203, 166, 247), QColor(30, 30, 46), QColor(108, 112, 134)));
         return map;
 	}
 

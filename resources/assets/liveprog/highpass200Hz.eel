@@ -45,8 +45,9 @@ function HighPassFilter_ProcessSample(sample)(
     out;
 );
 
-hipass.HighPassFilter_Set(freq, qFactor);
+left.HighPassFilter_Set(freq, qFactor);
+right.HighPassFilter_Set(freq, qFactor);
 
 @sample
-spl0 = hipass.HighPassFilter_ProcessSample(spl0);
-spl1 = hipass.HighPassFilter_ProcessSample(spl1);
+spl0 = left.HighPassFilter_ProcessSample(spl0);
+spl1 = right.HighPassFilter_ProcessSample(spl1);

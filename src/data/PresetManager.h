@@ -4,6 +4,7 @@
 #include "PresetRule.h"
 
 #include <QObject>
+#include <QString>
 #include <QVector>
 
 class PresetListModel;
@@ -20,7 +21,7 @@ public:
     }
 
     PresetManager(PresetManager const &) = delete;
-    PresetManager();
+    explicit PresetManager(QObject *parent = nullptr, QString presetDirectoryOverride = {});
 
     bool exists(const QString& name) const;
 
@@ -38,7 +39,7 @@ signals:
 public slots:
     void saveToPath(const QString &filename);
     bool loadFromPath(const QString &filename);
-    void rename(const QString &name, const QString &newName);
+    bool rename(const QString &name, const QString &newName);
     bool remove(const QString &name);
     bool load(const QString &filename);
     void save(const QString &name);
@@ -52,6 +53,8 @@ private:
     PresetListModel* _presetModel;
 
     QString rulesPath() const;
+    QString presetDirectory() const;
+    QString _presetDirectoryOverride;
 };
 
 #endif // PRESETMANAGER_H

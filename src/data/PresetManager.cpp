@@ -3,20 +3,25 @@
 #include "config/AppConfig.h"
 #include "config/DspConfig.h"
 #include "model/PresetListModel.h"
+#include "SafeFileOperations.h"
 
 #include <QFile>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <utility>
 
-PresetManager::PresetManager() : _presetModel(new PresetListModel(this))
+PresetManager::PresetManager(QObject *parent, QString presetDirectoryOverride) :
+    QObject(parent), _presetModel(new PresetListModel(this, presetDirectoryOverride)),
+    _presetDirectoryOverride(std::move(presetDirectoryOverride))
 {
     loadRules();
 }
 
 bool PresetManager::exists(const QString &name) const
 {
-    return QFile::exists(AppConfig::instance().getPath("presets/") + name + ".conf");
+    return SafeFileOperations::isSafeName(name) && QFile::exists(presetDirectory() + name + ".conf");
 }
 
 bool PresetManager::loadFromPath(const QString &filename)
@@ -24,19 +29,11 @@ bool PresetManager::loadFromPath(const QString &filename)
     const QString &src  = filename;
     const QString  dest = AppConfig::instance().getDspConfPath();
 
-    if (!QFile::exists(src))
+    if (!SafeFileOperations::copyAtomically(src, dest))
     {
-        // Preset does not exist anymore, rescan presets
         this->_presetModel->rescan();
         return false;
     }
-
-    if (QFile::exists(dest))
-    {
-        QFile::remove(dest);
-    }
-
-    QFile::copy(src, dest);
     DspConfig::instance().load();
     Log::debug("Loaded " + filename);
     return true;
@@ -45,34 +42,37 @@ bool PresetManager::loadFromPath(const QString &filename)
 
 bool PresetManager::load(const QString &name)
 {
-    return loadFromPath(AppConfig::instance().getPath("presets/") + name + ".conf");
+	if (!SafeFileOperations::isSafeName(name))
+		return false;
+    return loadFromPath(presetDirectory() + name + ".conf");
 }
 
-void PresetManager::rename(const QString &name, const QString &newName)
+bool PresetManager::rename(const QString &name, const QString &newName)
 {
-    auto path = AppConfig::instance().getPath("presets/") + name + ".conf";
-    if (QFile::exists(path))
-    {
-        QFile::rename(path, QDir(path).filePath(newName + ".conf"));
-    }
+    if (!SafeFileOperations::isSafeName(name) || !SafeFileOperations::isSafeName(newName))
+        return false;
+    const QDir directory(presetDirectory());
+    if (!SafeFileOperations::renameWithinDirectory(directory, name + ".conf", newName + ".conf"))
+        return false;
     this->_presetModel->rescan();
+    return true;
 }
 
 bool PresetManager::remove(const QString &name)
 {
-    auto path = AppConfig::instance().getPath("presets/") + name + ".conf";
-    if (QFile::exists(path))
-    {
-        QFile::remove(path);
-        this->_presetModel->rescan();
-        return true;
-    }
-    return false;
+	if (!SafeFileOperations::isSafeName(name))
+		return false;
+    if (!SafeFileOperations::removeWithinDirectory(QDir(presetDirectory()), name + ".conf"))
+        return false;
+    this->_presetModel->rescan();
+    return true;
 }
 
 void PresetManager::save(const QString &name)
 {
-    saveToPath(AppConfig::instance().getPath("presets/") + name + ".conf");
+	if (!SafeFileOperations::isSafeName(name))
+		return;
+    saveToPath(presetDirectory() + name + ".conf");
 }
 
 void PresetManager::saveToPath(const QString &filename)
@@ -81,13 +81,8 @@ void PresetManager::saveToPath(const QString &filename)
 
     const QString  src  = AppConfig::instance().getDspConfPath();
     const QString &dest = filename;
-
-    if (QFile::exists(dest))
-    {
-        QFile::remove(dest);
-    }
-
-    QFile::copy(src, dest);
+    if (!SafeFileOperations::copyAtomically(src, dest))
+        return;
     this->_presetModel->rescan();
     Log::debug("Saved to " + filename);
 }
@@ -96,6 +91,8 @@ void PresetManager::onOutputDeviceChanged(const QString &deviceName, const QStri
 {
     QString defaultRouteId = QString::fromStdString(RouteListModel::makeDefaultRoute().name);
     auto executeRule = [this, deviceName, outputRouteId, defaultRouteId](const PresetRule& rule){
+		if (!SafeFileOperations::isSafeName(rule.preset))
+			return;
         loadFromPath(AppConfig::instance().getPath("presets/" + rule.preset + ".conf"));
         emit presetAutoloaded(deviceName, rule.routeName, rule.routeId == defaultRouteId);
     };
@@ -124,6 +121,12 @@ void PresetManager::onOutputDeviceChanged(const QString &deviceName, const QStri
 QString PresetManager::rulesPath() const
 {
     return AppConfig::instance().getPath("preset_rules.json");
+}
+
+QString PresetManager::presetDirectory() const
+{
+    return _presetDirectoryOverride.isEmpty() ? AppConfig::instance().getPath("presets/") :
+                                                 QDir::cleanPath(_presetDirectoryOverride) + QDir::separator();
 }
 
 void PresetManager::loadRules()
@@ -202,4 +205,3 @@ QVector<PresetRule> PresetManager::rules() const
 {
     return _rules;
 }
-

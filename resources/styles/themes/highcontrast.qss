@@ -1,0 +1,9 @@
+QWidget { font-size: 10pt; }
+QPushButton, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox { border-radius: 0px; padding: 5px 8px; border: 2px solid palette(text); }
+QPushButton:hover, QComboBox:hover, QLineEdit:hover { border-color: palette(highlight); }
+QPushButton:focus, QComboBox:focus, QLineEdit:focus { border: 3px solid palette(highlight); }
+QPushButton:disabled, QComboBox:disabled, QLineEdit:disabled { border-style: dashed; }
+QTabBar::tab { padding: 8px 14px; border: 2px solid transparent; }
+QTabBar::tab:selected { border-color: palette(highlight); }
+QSlider::groove:horizontal { height: 8px; }
+QSlider::handle:horizontal { width: 18px; margin: -5px 0; border-radius: 0px; border: 2px solid palette(text); }

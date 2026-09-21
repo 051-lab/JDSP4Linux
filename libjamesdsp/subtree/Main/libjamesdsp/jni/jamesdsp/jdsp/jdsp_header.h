@@ -383,19 +383,32 @@ typedef enum
 } sf_reverb_preset;
 extern void sf_advancereverb(sf_reverb_state_st *rv, int rate, int oversamplefactor, float ertolate, float erefwet, float dry, float ereffactor, float erefwidth, float width, float wet, float wander, float bassb, float spin, float inputlpf, float basslpf, float damplpf, float outputlpf, float rt60, float delay);
 
+#ifdef __cplusplus
+#define JDSP_ALIGNAS_TYPE(type) alignas(type)
+#else
+#define JDSP_ALIGNAS_TYPE(type) _Alignas(type)
+#endif
 typedef struct
 {
-	char subband[2][getMemSizeWarpedPFB(5, 2)];
+	JDSP_ALIGNAS_TYPE(WarpedPFB) char subband[2][getMemSizeWarpedPFB(5, 2)];
 	float emaAlpha[5];
 	float sumStates[5];
 	float diffStates[5];
 	float mix, minusMix, gain;
 } stereoEnhancement;
+#undef JDSP_ALIGNAS_TYPE
+typedef struct LiveProgVariableOverride
+{
+	char name[NSEEL_MAX_VARIABLE_NAMELEN + 1];
+	float value;
+	struct LiveProgVariableOverride *next;
+} LiveProgVariableOverride;
 typedef struct
 {
 	NSEEL_VMCTX vm;
-	NSEEL_CODEHANDLE codehandleInit, codehandleProcess;
-	float *vmFs, *input1, *input2;
+	NSEEL_CODEHANDLE codehandleInit, codehandleSlider, codehandleBlock, codehandleProcess;
+	float *vmFs, *samplesBlock, *input1, *input2;
+	LiveProgVariableOverride *hostOverrides;
 	int compileSucessfully;
     int active;
 } LiveProg;
@@ -534,6 +547,7 @@ typedef struct dspsys
 	Convolver1D conv;
 	// Live programmable effect
 	int liveprogEnabled;
+	size_t liveprogNonFiniteSamples;
 	LiveProg eel;
 	// Arbitrary magnitude response
 	int arbitraryMagEnabled, arbMagForceRefresh;
@@ -542,6 +556,9 @@ typedef struct dspsys
 	float postGain;
 	JLimiter limiter;
 	size_t blockSize, blockSizeMax, pw2BlockMemSize;
+	/* Callback admission/quiescence gate for control-side buffer/rate changes.
+	 * Accessed only with compiler atomic builtins in jdspController.c. */
+	uint32_t processingReaders, processingPaused;
 	float *tmpBuffer[6];
 	// Internal function pointer
 	void(*processInternal)(struct dspsys *, size_t);
@@ -577,6 +594,15 @@ typedef struct dspsys
 extern void JamesDSPGlobalMemoryAllocation();
 extern void JamesDSPGlobalMemoryDeallocation();
 extern void JamesDSPReallocateBlock(JamesDSPLib *jdsp, size_t blockSizeMax);
+extern void JamesDSPRefreshConvolutions(JamesDSPLib *jdsp, char refreshAll);
+#ifdef JDSP_TEST_HOOKS
+extern void JamesDSPSetBufferAllocationFailureForTests(int fail);
+extern void JamesDSPSetRefreshCallCountForTests(size_t count);
+extern size_t JamesDSPGetRefreshCallCountForTests(void);
+extern void JamesDSPSetLiveProgLoadDelayForTests(int delayMs);
+extern int JamesDSPLiveProgLoadStartedForTests(void);
+extern int JamesDSPLiveProgMaxConcurrentLoadsForTests(void);
+#endif
 extern void JamesDSP_Load_benchmark(double *_c0, double *_c1);
 extern void JamesDSP_Save_benchmark(double *_c0, double *_c1);
 extern void JamesDSP_Start_benchmark();
@@ -587,6 +613,7 @@ extern void JamesDSPInit(JamesDSPLib *jdsp, int blockSizeMax, float sample_rate)
 extern void JamesDSPSetPostGain(JamesDSPLib *jdsp, double pGaindB);
 extern int JamesDSPGetMutexStatus(JamesDSPLib *jdsp);
 extern void JamesDSPSetSampleRate(JamesDSPLib *jdsp, float new_sample_rate, int forceRefresh);
+extern void JamesDSPProcess(JamesDSPLib *jdsp, size_t n);
 extern int selectConvPartitions(JamesDSPLib *jdsp, unsigned int impulseLengthActual, unsigned int *seg2Len);
 // Limiter
 extern void JLimiterSetCoefficients(JamesDSPLib *jdsp, double thresholddB, double msRelease);
@@ -627,9 +654,11 @@ extern void VacuumTubeProcess(JamesDSPLib *jdsp, size_t n);
 extern const char* checkErrorCode(int errCode);
 extern void LiveProgConstructor(JamesDSPLib *jdsp);
 extern void LiveProgDestructor(JamesDSPLib *jdsp);
-extern int LiveProgStringParser(JamesDSPLib *jdsp, char *eelCode);
+extern int LiveProgStringParser(JamesDSPLib *jdsp, char *eelCode, char *errorBuffer, size_t errorBufferSize);
+extern int LiveProgSetVariable(JamesDSPLib *jdsp, const char *name, float value);
 extern void LiveProgEnable(JamesDSPLib *jdsp);
 extern void LiveProgDisable(JamesDSPLib *jdsp);
+extern void LiveProgRefreshSampleRate(JamesDSPLib *jdsp, float sampleRate);
 extern void LiveProgProcess(JamesDSPLib *jdsp, size_t n);
 // DDC
 extern void DDCConstructor(JamesDSPLib *jdsp);

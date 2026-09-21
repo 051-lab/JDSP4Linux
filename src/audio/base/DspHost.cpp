@@ -15,6 +15,9 @@
 #include <QDebug>
 #include <cstring>
 #include <assert.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
 
 extern "C" {
 #ifdef DEBUG_FPE
@@ -28,6 +31,42 @@ extern "C" {
 /* C interop */
 inline JamesDSPLib* cast(void* raw){
     return static_cast<JamesDSPLib*>(raw);
+}
+
+namespace {
+
+bool parseDoubleList(const QString& raw, int expected, double* output)
+{
+    const auto values = raw.split(';', Qt::KeepEmptyParts);
+    if(values.size() != expected)
+        return false;
+
+    for(int i = 0; i < expected; ++i)
+    {
+        bool ok = false;
+        output[i] = values[i].toDouble(&ok);
+        if(!ok || !std::isfinite(output[i]))
+            return false;
+    }
+    return true;
+}
+
+bool parseIntList(const QString& raw, int expected, int* output)
+{
+    const auto values = raw.split(';', Qt::KeepEmptyParts);
+    if(values.size() != expected)
+        return false;
+
+    for(int i = 0; i < expected; ++i)
+    {
+        bool ok = false;
+        output[i] = values[i].toInt(&ok);
+        if(!ok)
+            return false;
+    }
+    return true;
+}
+
 }
 
 DspHost::DspHost(void* dspPtr, MessageHandlerFunc&& extraHandler) : _extraFunc(std::move(extraHandler))
@@ -170,27 +209,16 @@ void DspHost::updateFirEqualizer(DspConfig *config)
         else if (!interpolationExists) interpolationMode = 0;
     }
 
-    std::string str = chopDoubleQuotes(config->get<QString>(DspConfig::tone_eq)).toStdString();
-    std::vector<string> v;
-    std::stringstream ss(str);
-
-    while (ss.good()) {
-        std::string substr;
-        getline(ss, substr, ';');
-        v.push_back(substr);
-    }
-
-    if(v.size() != 30)
+    const QString rawEq = chopDoubleQuotes(config->get<QString>(DspConfig::tone_eq));
+    double param[30] = {};
+    if(!parseDoubleList(rawEq, 30, param))
     {
-        util::warning("Invalid EQ data. 30 semicolon-separateds field expected, "
-                      "found " + std::to_string(v.size()) + " fields instead.");
-        return;
-    }
-
-    double param[30];
-    for (int i = 0; i < 30; i++)
-    {
-        param[i] = (double)std::stod(v[i]);
+        util::warning("Invalid EQ data. Expected 30 finite semicolon-separated values. "
+                      "Using a neutral equalizer response.");
+        std::fill(std::begin(param), std::end(param), 0.0);
+        for(int i = 0; i < 15; ++i)
+            param[i] = std::array<double, 15>{25, 40, 63, 100, 160, 250, 400, 630,
+                                              1000, 1600, 2500, 4000, 6300, 10000, 16000}[i];
     }
 
     MultimodalEqualizerAxisInterpolation(cast(this->_dsp), interpolationMode, filterType, param, param + 15);
@@ -217,6 +245,7 @@ void DspHost::updateVdc(DspConfig *config)
         if(!f.exists())
         {
             util::warning("Referenced file does not exist 'ddc_file'");
+            DDCDisable(cast(this->_dsp));
             return;
         }
 
@@ -251,27 +280,15 @@ void DspHost::updateCompander(DspConfig *config)
     float timeconstant = max(config->get<float>(DspConfig::compander_timeconstant), 0.22);
     int tftransforms = config->get<int>(DspConfig::compander_time_freq_transforms);
 
-    std::string str = chopDoubleQuotes(config->get<QString>(DspConfig::compander_response)).toStdString();
-    std::vector<string> v;
-    std::stringstream ss(str);
-
-    while (ss.good()) {
-        std::string substr;
-        getline(ss, substr, ';');
-        v.push_back(substr);
-    }
-
-    if(v.size() != 14)
+    const QString rawResponse = chopDoubleQuotes(config->get<QString>(DspConfig::compander_response));
+    double param[14] = {};
+    if(!parseDoubleList(rawResponse, 14, param))
     {
-        util::warning("Invalid compander data. 14 semicolon-separateds field expected, "
-                      "found " + std::to_string(v.size()) + " fields instead.");
-        return;
-    }
-
-    double param[14];
-    for (int i = 0; i < 14; i++)
-    {
-        param[i] = (double)std::stod(v[i]);
+        util::warning("Invalid compander data. Expected 14 finite semicolon-separated values. "
+                      "Using the default response curve.");
+        const double defaults[14] = {95, 200, 400, 800, 1600, 3400, 7500,
+                                     0, 0, 0, 0, 0, 0, 0};
+        std::copy(std::begin(defaults), std::end(defaults), std::begin(param));
     }
 
     CompressorSetParam(cast(this->_dsp), timeconstant, granularity, tftransforms, 0);
@@ -363,34 +380,11 @@ void DspHost::updateConvolver(DspConfig *config)
         if(!waveEditExists) waveEdit = "-80;-100;23;12;17;28";
     }
 
-    std::vector<string> v;
-    std::stringstream ss(waveEdit.toStdString());
-
-    while (ss.good()) {
-        std::string substr;
-        getline(ss, substr, ';');
-        v.push_back(substr);
-    }
-
-    int param[6];
-    if(v.size() != 6)
+    int param[6] = {-80, -100, 23, 12, 17, 28};
+    if(!parseIntList(waveEdit, 6, param))
     {
-        util::warning("Invalid advanced impulse editing data. 6 semicolon-separateds field expected, "
-                      "found " + std::to_string(v.size()) + " fields instead.");
-
-        param[0] = -80;
-        param[1] = -100;
-        param[2] = 23;
-        param[3] = 12;
-        param[4] = 17;
-        param[5] = 28;
-    }
-    else
-    {
-        for (int i = 0; i < 6; i++)
-        {
-            param[i] = (int)std::stoi(v[i]);
-        }
+        util::warning("Invalid advanced impulse editing data. Expected 6 integer "
+                      "semicolon-separated values. Using defaults.");
     }
 
     int success = 1;
@@ -741,38 +735,44 @@ void DspHost::reloadLiveprog(DspConfig* config)
     QFile f(file);
     if(!f.exists())
     {
-        util::warning("Referenced file does not exist anymore. Disabling liveprog.");
-        enabled = false;
+        util::warning("Referenced file does not exist anymore. Keeping the last valid Liveprog.");
+        dispatch(EelCompilerResult, QList<QString>{"-7", "Referenced EEL file does not exist", file, "0", "Liveprog file unavailable"});
+        return;
     }
 
     if (!f.open(QFile::ReadOnly | QFile::Text))
     {
-        util::error("Cannot open file path. Disabling liveprog.");
-        enabled = false;
+        util::error("Cannot open file path. Keeping the last valid Liveprog.");
+        dispatch(EelCompilerResult, QList<QString>{"-7", "Cannot open EEL file", file, "0", "Liveprog file unavailable"});
+        return;
     }
     QTextStream in(&f);
-
-
-    LiveProgDisable(cast(this->_dsp));
+    QByteArray source = in.readAll().toLocal8Bit();
+    char compilerError[1024] = {};
     dispatch(EelCompilerStart, f.fileName());
 
     QElapsedTimer timer;
     timer.start();
-    int ret = LiveProgStringParser(cast(this->_dsp), in.readAll().toLocal8Bit().data());
-
-    // Workaround due to library bug
-    jdsp_unlock(cast(this->_dsp));
+    int ret = LiveProgStringParser(cast(this->_dsp), source.data(), compilerError, sizeof(compilerError));
 
     float msecs = timer.nsecsElapsed() / 1000000.0;
 
-    const char* errorString = NSEEL_code_getcodeerror(cast(this->_dsp)->eel.vm);
-    if(errorString != NULL)
+    const char* errorString = compilerError[0] == '\0' ? nullptr : compilerError;
+    if(errorString != nullptr)
     {
         util::warning("Syntax error in script file, cannot load. Reason: " + std::string(errorString));
     }
     if(ret <= 0)
     {
         util::warning("" + std::string(checkErrorCode(ret)));
+    }
+
+    if(ret > 0)
+    {
+        if(enabled)
+            LiveProgEnable(cast(this->_dsp));
+        else
+            LiveProgDisable(cast(this->_dsp));
     }
 
     QList<QString> resultArgs;
@@ -782,18 +782,25 @@ void DspHost::reloadLiveprog(DspConfig* config)
     resultArgs.append(QString::number(msecs));
     resultArgs.append(checkErrorCode(ret));
     dispatch(EelCompilerResult, resultArgs);
+}
 
-    if(enabled)
-        LiveProgEnable(cast(this->_dsp));
-    else
-        LiveProgDisable(cast(this->_dsp));
+bool DspHost::liveprogActive() const
+{
+    return _dsp != nullptr && cast(_dsp)->liveprogEnabled != 0;
 }
 
 std::vector<EelVariable> DspHost::enumEelVariables()
 {
     std::vector<EelVariable> vars;
 
+    jdsp_lock(cast(this->_dsp));
     compileContext *ctx = (compileContext*)cast(this->_dsp)->eel.vm;
+    if (!ctx)
+    {
+        jdsp_unlock(cast(this->_dsp));
+        return vars;
+    }
+
     for (int i = 0; i < ctx->varTable_numBlocks; i++)
     {
         for (int j = 0; j < NSEEL_VARS_PER_BLOCK; j++)
@@ -816,41 +823,24 @@ std::vector<EelVariable> DspHost::enumEelVariables()
         }
     }
 
+    jdsp_unlock(cast(this->_dsp));
     return vars;
 }
 
 bool DspHost::manipulateEelVariable(const char* name, float value)
 {
-    compileContext *ctx = (compileContext*)cast(this->_dsp)->eel.vm;
-    for (int i = 0; i < ctx->varTable_numBlocks; i++)
-    {
-        for (int j = 0; j < NSEEL_VARS_PER_BLOCK; j++)
-        {
-            if(!ctx->varTable_Names[i][j] || std::strcmp(ctx->varTable_Names[i][j], name) != 0)
-            {
-                continue;
-            }
+    if (LiveProgSetVariable(cast(this->_dsp), name, value))
+        return true;
 
-            // TODO fix string handling & detection
-            char *validString = nullptr;//(char*)GetStringForIndex(ctx->region_context, ctx->varTable_Values[i][j], 1);
-            if(validString)
-            {
-                Log::error(QString("variable '%1' is a string; currently only numerical variables can be manipulated").arg(name));
-                return false;
-            }
-
-            ctx->varTable_Values[i][j] = value;
-            return true;
-        }
-    }
-
-    Log::error(QString("variable '%1' not found").arg(name));
+    Log::error(QString("variable '%1' not found or cannot be changed").arg(name));
     return false;
 }
 
 void DspHost::freezeLiveprogExecution(bool freeze)
 {
+    jdsp_lock(cast(this->_dsp));
     cast(this->_dsp)->eel.active = !freeze;
+    jdsp_unlock(cast(this->_dsp));
     Log::debug("Liveprog execution has been " + (freeze ? QString("frozen") : "resumed"));
 }
 
@@ -866,4 +856,3 @@ void receiveLiveprogStdOut(const char *buffer, void* userData)
 
     self->dispatch(DspHost::EelWriteOutputBuffer, QString(buffer));
 }
-

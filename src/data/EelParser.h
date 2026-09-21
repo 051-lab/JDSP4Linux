@@ -6,6 +6,7 @@
 #include <optional>
 #include <utils/Log.h>
 #include <QRegularExpression>
+#include <QStringList>
 #include <QVector>
 #include <cmath>
 
@@ -22,7 +23,8 @@ class EELParser :
 
 public:
 	EELParser();
-	void          loadFile(QString path);
+	~EELParser() override;
+	bool          loadFile(QString path);
 	bool          saveFile();
     bool          loadDefaults();
     bool          hasDefaultsDefined();
@@ -31,6 +33,8 @@ public:
 	QString       getPath();
 	QString       getDescription();
 	EELProperties getProperties();
+	QStringList   getDiagnostics() const;
+	QString       getLastSaveError() const;
 	bool          manipulateProperty(EELBaseProperty *prop);
 
 private:
@@ -46,6 +50,8 @@ private:
     void clearProperties();
 
     EELProperties properties;
+    QStringList diagnostics;
+    QString lastSaveError;
 
 };
 
@@ -143,7 +149,10 @@ public:
 
 	void setValue(const TNum &_value)
 	{
-        value = fmin(fmax(minimum, _value), maximum);
+        TNum candidate = _value;
+        if (std::isfinite(static_cast<double>(step)) && step > 0)
+            candidate = minimum + static_cast<TNum>(std::round((candidate - minimum) / step)) * step;
+        value = fmin(fmax(minimum, candidate), maximum);
 	}
 
 	TNum getMaximum() const
@@ -168,7 +177,10 @@ public:
             Log::warning("No default value set");
             return fmin(fmax(minimum, value), maximum);
         }
-        return dflt.value();
+        TNum candidate = dflt.value();
+        if (std::isfinite(static_cast<double>(step)) && step > 0)
+            candidate = minimum + static_cast<TNum>(std::round((candidate - minimum) / step)) * step;
+        return fmin(fmax(minimum, candidate), maximum);
     }
 
     bool hasDefault() const override

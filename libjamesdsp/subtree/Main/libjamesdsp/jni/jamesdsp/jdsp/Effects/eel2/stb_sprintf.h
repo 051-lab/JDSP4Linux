@@ -170,6 +170,7 @@ STBSP__PUBLICDEF void STB_SPRINTF_DECORATE(set_separators)(char comma, char peri
 #endif // STB_SPRINTF_H_INCLUDE
 #ifdef STB_SPRINTF_IMPLEMENTATION
 #include <stdlib.h> // for va_arg()
+#include <string.h> // for alignment-safe chunk copies
 #define stbsp__uint32 unsigned int
 #define stbsp__int32 signed int
 #ifdef _MSC_VER
@@ -306,7 +307,7 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
             // Using the 'hasless' trick:
             // https://graphics.stanford.edu/~seander/bithacks.html#HasLessInWord
             stbsp__uint32 v, c;
-            v = *(stbsp__uint32 *)f;
+            memcpy(&v, f, sizeof(v));
             c = (~v) & 0x80808080;
             if (((v ^ 0x25252525) - 0x01010101) & c)
                goto schk1;
@@ -324,7 +325,7 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
                 } else
             #endif
             {
-                *(stbsp__uint32 *)bf = v;
+                memcpy(bf, &v, sizeof(v));
             }
             bf += 4;
             f += 4;
@@ -500,7 +501,8 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
             n = ((stbsp__uint32)(pr - n)) >> 2;
          }
          while (n) {
-            stbsp__uint32 v = *(stbsp__uint32 *)sn;
+            stbsp__uint32 v;
+            memcpy(&v, sn, sizeof(v));
             if ((v - 0x01010101) & (~v) & 0x80808080UL)
                goto lchk;
             sn += 4;
@@ -754,7 +756,8 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
                --i;
             }
             while (i >= 4) {
-               *(stbsp__uint32 *)s = 0x30303030;
+               stbsp__uint32 zeroes = 0x30303030;
+               memcpy(s, &zeroes, sizeof(zeroes));
                s += 4;
                i -= 4;
             }
@@ -797,7 +800,8 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
                         --n;
                      }
                      while (n >= 4) {
-                        *(stbsp__uint32 *)s = 0x30303030;
+                        stbsp__uint32 zeroes = 0x30303030;
+                        memcpy(s, &zeroes, sizeof(zeroes));
                         s += 4;
                         n -= 4;
                      }
@@ -992,7 +996,7 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
             if ((fl & STBSP__TRIPLET_COMMA) == 0) {
                do {
                   s -= 2;
-                  *(stbsp__uint16 *)s = *(stbsp__uint16 *)&stbsp__digitpair.pair[(n % 100) * 2];
+                  memcpy(s, &stbsp__digitpair.pair[(n % 100) * 2], sizeof(stbsp__uint16));
                   n /= 100;
                } while (n);
             }
@@ -1066,7 +1070,8 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
                      --i;
                   }
                   while (i >= 4) {
-                     *(stbsp__uint32 *)bf = 0x20202020;
+                     stbsp__uint32 spaces = 0x20202020;
+                     memcpy(bf, &spaces, sizeof(spaces));
                      bf += 4;
                      i -= 4;
                   }
@@ -1102,7 +1107,8 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
                      --i;
                   }
                   while (i >= 4) {
-                     *(stbsp__uint32 *)bf = 0x30303030;
+                     stbsp__uint32 zeroes = 0x30303030;
+                     memcpy(bf, &zeroes, sizeof(zeroes));
                      bf += 4;
                      i -= 4;
                   }
@@ -1137,7 +1143,7 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
             stbsp__cb_buf_clamp(i, n);
             n -= i;
             STBSP__UNALIGNED(while (i >= 4) {
-               *(stbsp__uint32 *)bf = *(stbsp__uint32 *)s;
+               memcpy(bf, s, sizeof(stbsp__uint32));
                bf += 4;
                s += 4;
                i -= 4;
@@ -1160,7 +1166,8 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
                --i;
             }
             while (i >= 4) {
-               *(stbsp__uint32 *)bf = 0x30303030;
+               stbsp__uint32 zeroes = 0x30303030;
+               memcpy(bf, &zeroes, sizeof(zeroes));
                bf += 4;
                i -= 4;
             }
@@ -1196,7 +1203,8 @@ STBSP__PUBLICDEF int STB_SPRINTF_DECORATE(vsprintfcb)(STBSP_SPRINTFCB *callback,
                      --i;
                   }
                   while (i >= 4) {
-                     *(stbsp__uint32 *)bf = 0x20202020;
+                     stbsp__uint32 spaces = 0x20202020;
+                     memcpy(bf, &spaces, sizeof(spaces));
                      bf += 4;
                      i -= 4;
                   }
@@ -1645,7 +1653,7 @@ static stbsp__int32 stbsp__real_to_str(char const **start, stbsp__uint32 *len, c
       }
       while (n) {
          out -= 2;
-         *(stbsp__uint16 *)out = *(stbsp__uint16 *)&stbsp__digitpair.pair[(n % 100) * 2];
+         memcpy(out, &stbsp__digitpair.pair[(n % 100) * 2], sizeof(stbsp__uint16));
          n /= 100;
          e += 2;
       }

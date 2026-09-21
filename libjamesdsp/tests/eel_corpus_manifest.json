@@ -1,0 +1,49 @@
+{
+  "bundled": {
+    "glob": "resources/assets/liveprog/*.eel",
+    "expected_compile": "pass",
+    "role": "shipped LiveProg preset"
+  },
+  "custom": [
+    {
+      "path": "../../projects/jamesdsp-liveprog/awBaxandall.eel",
+      "expected_compile": "pass",
+      "role": "user-owned Airwindows port"
+    },
+    {
+      "path": "../../projects/jamesdsp-liveprog/awInterstage.eel",
+      "expected_compile": "pass",
+      "role": "user-owned Airwindows port"
+    },
+    {
+      "path": "../../projects/jamesdsp-liveprog/liveprogLifecycleDiagnostic.eel",
+      "expected_compile": "pass",
+      "role": "user-owned lifecycle diagnostic"
+    }
+  ],
+  "additional": [
+    {
+      "path": "libjamesdsp/subtree/Main/CLI/hadamVerb.eel",
+      "expected_compile": "pass",
+      "role": "CLI bundled example"
+    },
+    {
+      "path": "libjamesdsp/subtree/Main/CLI/hpfloat.eel",
+      "expected_compile": "fail",
+      "expected_error": "native parser returned -3",
+      "role": "CLI bundled example"
+    },
+    {
+      "path": "src/subprojects/EELEditor/src/definitions/demo.eel",
+      "expected_compile": "fail",
+      "expected_error": "native compiler rejects unsupported procedure syntax",
+      "role": "editor demo fixture"
+    }
+  ],
+  "excluded": [
+    {
+      "path": "src/subprojects/EELEditor",
+      "reason": "vendored editor sources, not a LiveProg preset"
+    }
+  ]
+}

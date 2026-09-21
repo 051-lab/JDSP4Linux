@@ -1,0 +1,8 @@
+QWidget { font-size: 10pt; }
+QPushButton, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox { border-radius: 2px; padding: 4px 8px; border: 1px solid palette(mid); }
+QPushButton:hover, QComboBox:hover, QLineEdit:hover { border-color: palette(highlight); }
+QPushButton:focus, QComboBox:focus, QLineEdit:focus { border: 2px solid palette(highlight); }
+QTabBar::tab { padding: 6px 12px; border-bottom: 2px solid transparent; }
+QTabBar::tab:selected { border-bottom-color: palette(highlight); }
+QSlider::groove:horizontal { height: 4px; }
+QSlider::handle:horizontal { width: 12px; margin: -4px 0; border-radius: 2px; }

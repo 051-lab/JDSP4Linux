@@ -3118,12 +3118,18 @@ static float NSEEL_CGEN_CALL PolyphaseFilterbankInit(void *opaque, INT_PTR num_p
 	size_t aligned = requiredMemSize / sizeof(float) + 1;
 	int32_t offs1 = (int32_t)(*parms[3] + NSEEL_CLOSEFACTOR);
 	float *indexer = __NSEEL_RAMAlloc(blocks, (uint64_t)offs1);
+	while ((uintptr_t)indexer % _Alignof(WarpedPFB) != 0)
+		indexer = __NSEEL_RAMAlloc(blocks, (uint64_t)++offs1);
+	*parms[3] = (float)offs1;
 	int32_t offs2 = 0;
 	float *indexer2 = 0;
 	if (num_param == 5)
 	{
-		indexer2 = __NSEEL_RAMAlloc(blocks, offs1 + aligned);
-		*parms[4] = offs1 + aligned;
+		offs2 = offs1 + (int32_t)aligned;
+		indexer2 = __NSEEL_RAMAlloc(blocks, (uint64_t)offs2);
+		while ((uintptr_t)indexer2 % _Alignof(WarpedPFB) != 0)
+			indexer2 = __NSEEL_RAMAlloc(blocks, (uint64_t)++offs2);
+		*parms[4] = (float)offs2;
 	}
 	WarpedPFB *pfbPtr = (WarpedPFB*)indexer;
 	WarpedPFB *pfbPtr2 = (WarpedPFB*)indexer2;
@@ -3263,6 +3269,13 @@ static float NSEEL_CGEN_CALL _eel_iirBandSplitterInit(void *opaque, INT_PTR num_
 	uint32_t offs1 = (uint32_t)(*parms[0] + NSEEL_CLOSEFACTOR);
 	float fs = *parms[1];
 	float *tdsbStruct = __NSEEL_RAMAlloc(blocks, (uint64_t)offs1);
+	uint32_t stateOffset = 2;
+	float *state = tdsbStruct + stateOffset;
+	if ((uintptr_t)state % _Alignof(LinkwitzRileyCrossover) != 0)
+	{
+		stateOffset++;
+		state++;
+	}
 	if (num_param > 9)
 		return -1;
 	size_t requireMemSize;
@@ -3324,36 +3337,39 @@ static float NSEEL_CGEN_CALL _eel_iirBandSplitterInit(void *opaque, INT_PTR num_
 		ptr = bps;
 	}
 	tdsbStruct[0] = (float)(num_param - 1);
-	memcpy(tdsbStruct + 1, ptr, requireMemSize);
+	tdsbStruct[1] = (float)stateOffset;
+	memcpy(state, ptr, requireMemSize);
 	free(ptr);
-	return (float)(1 + requireMemSize / sizeof(float));
+	return (float)(stateOffset + requireMemSize / sizeof(float));
 }
 static float NSEEL_CGEN_CALL _eel_iirBandSplitterClearState(float *blocks, float *start)
 {
 	float *tdsbStruct = __NSEEL_RAMAlloc(blocks, (uint64_t)(uint32_t)(*start + NSEEL_CLOSEFACTOR));
 	int32_t bands = (int32_t)(tdsbStruct[0] + NSEEL_CLOSEFACTOR);
+	uint32_t stateOffset = (uint32_t)(tdsbStruct[1] + NSEEL_CLOSEFACTOR);
+	float *state = tdsbStruct + stateOffset;
 	switch (bands)
 	{
 	case 2:
-		LWZRClearStateVariable((LinkwitzRileyCrossover*)(tdsbStruct + 1));
+		LWZRClearStateVariable((LinkwitzRileyCrossover*)state);
 		break;
 	case 3:
-		clearState3BandsCrossover((ThreeBandsCrossover*)(tdsbStruct + 1));
+		clearState3BandsCrossover((ThreeBandsCrossover*)state);
 		break;
 	case 4:
-		clearState4BandsCrossover((FourBandsCrossover*)(tdsbStruct + 1));
+		clearState4BandsCrossover((FourBandsCrossover*)state);
 		break;
 	case 5:
-		clearState5BandsCrossover((FiveBandsCrossover*)(tdsbStruct + 1));
+		clearState5BandsCrossover((FiveBandsCrossover*)state);
 		break;
 	case 6:
-		clearState6BandsCrossover((SixBandsCrossover*)(tdsbStruct + 1));
+		clearState6BandsCrossover((SixBandsCrossover*)state);
 		break;
 	case 7:
-		clearState7BandsCrossover((SevenBandsCrossover*)(tdsbStruct + 1));
+		clearState7BandsCrossover((SevenBandsCrossover*)state);
 		break;
 	case 8:
-		clearState8BandsCrossover((EightBandsCrossover*)(tdsbStruct + 1));
+		clearState8BandsCrossover((EightBandsCrossover*)state);
 		break;
 	}
 	return 1;
@@ -3363,29 +3379,31 @@ static float NSEEL_CGEN_CALL _eel_iirBandSplitterProcess(void *opaque, INT_PTR n
 	compileContext *c = (compileContext*)opaque;
 	float *tdsbStruct = __NSEEL_RAMAlloc(c->ram_state, (uint32_t)(*parms[0] + NSEEL_CLOSEFACTOR));
 	int32_t bands = (int32_t)(tdsbStruct[0] + NSEEL_CLOSEFACTOR);
+	uint32_t stateOffset = (uint32_t)(tdsbStruct[1] + NSEEL_CLOSEFACTOR);
+	float *state = tdsbStruct + stateOffset;
 	double out[8];
 	switch (bands)
 	{
 	case 2:
-		LWZRProcessSample((LinkwitzRileyCrossover*)(tdsbStruct + 1), *parms[1], &out[0], &out[1]);
+		LWZRProcessSample((LinkwitzRileyCrossover*)state, *parms[1], &out[0], &out[1]);
 		*parms[2] = (float)out[0];
 		*parms[3] = (float)-out[1];
 		break;
 	case 3:
-		process3BandsCrossover((ThreeBandsCrossover*)(tdsbStruct + 1), *parms[1], &out[0], &out[1], &out[2]);
+		process3BandsCrossover((ThreeBandsCrossover*)state, *parms[1], &out[0], &out[1], &out[2]);
 		*parms[2] = (float)out[0];
 		*parms[3] = (float)-out[1];
 		*parms[4] = (float)out[2];
 		break;
 	case 4:
-		process4BandsCrossover((FourBandsCrossover*)(tdsbStruct + 1), *parms[1], &out[0], &out[1], &out[2], &out[3]);
+		process4BandsCrossover((FourBandsCrossover*)state, *parms[1], &out[0], &out[1], &out[2], &out[3]);
 		*parms[2] = (float)out[0];
 		*parms[3] = (float)-out[1];
 		*parms[4] = (float)out[2];
 		*parms[5] = (float)-out[3];
 		break;
 	case 5:
-		process5BandsCrossover((FiveBandsCrossover*)(tdsbStruct + 1), *parms[1], &out[0], &out[1], &out[2], &out[3], &out[4]);
+		process5BandsCrossover((FiveBandsCrossover*)state, *parms[1], &out[0], &out[1], &out[2], &out[3], &out[4]);
 		*parms[2] = (float)out[0];
 		*parms[3] = (float)-out[1];
 		*parms[4] = (float)out[2];
@@ -3393,7 +3411,7 @@ static float NSEEL_CGEN_CALL _eel_iirBandSplitterProcess(void *opaque, INT_PTR n
 		*parms[6] = (float)out[4];
 		break;
 	case 6:
-		process6BandsCrossover((SixBandsCrossover*)(tdsbStruct + 1), *parms[1], &out[0], &out[1], &out[2], &out[3], &out[4], &out[5]);
+		process6BandsCrossover((SixBandsCrossover*)state, *parms[1], &out[0], &out[1], &out[2], &out[3], &out[4], &out[5]);
 		*parms[2] = (float)out[0];
 		*parms[3] = (float)-out[1];
 		*parms[4] = (float)out[2];
@@ -3402,7 +3420,7 @@ static float NSEEL_CGEN_CALL _eel_iirBandSplitterProcess(void *opaque, INT_PTR n
 		*parms[7] = (float)-out[5];
 		break;
 	case 7:
-		process7BandsCrossover((SevenBandsCrossover*)(tdsbStruct + 1), *parms[1], &out[0], &out[1], &out[2], &out[3], &out[4], &out[5], &out[6]);
+		process7BandsCrossover((SevenBandsCrossover*)state, *parms[1], &out[0], &out[1], &out[2], &out[3], &out[4], &out[5], &out[6]);
 		*parms[2] = (float)out[0];
 		*parms[3] = (float)-out[1];
 		*parms[4] = (float)out[2];
@@ -3412,7 +3430,7 @@ static float NSEEL_CGEN_CALL _eel_iirBandSplitterProcess(void *opaque, INT_PTR n
 		*parms[8] = (float)out[6];
 		break;
 	case 8:
-		process8BandsCrossover((EightBandsCrossover*)(tdsbStruct + 1), *parms[1], &out[0], &out[1], &out[2], &out[3], &out[4], &out[5], &out[6], &out[7]);
+		process8BandsCrossover((EightBandsCrossover*)state, *parms[1], &out[0], &out[1], &out[2], &out[3], &out[4], &out[5], &out[6], &out[7]);
 		*parms[2] = (float)out[0];
 		*parms[3] = (float)-out[1];
 		*parms[4] = (float)out[2];
@@ -5722,7 +5740,7 @@ start_over: // when an opcode changed substantially in optimization, goto here t
 					case FN_SHL:      RESTART_DIRECTVALUE(((int32_t)op->parms.parms[0]->parms.dv.directValue) << ((int32_t)op->parms.parms[1]->parms.dv.directValue));
 					case FN_SHR:      RESTART_DIRECTVALUE(((int32_t)op->parms.parms[0]->parms.dv.directValue) >> ((int32_t)op->parms.parms[1]->parms.dv.directValue));
 					case FN_POW:      RESTART_DIRECTVALUE(powf(op->parms.parms[0]->parms.dv.directValue, op->parms.parms[1]->parms.dv.directValue));
-					case FN_DIVIDE:   RESTART_DIRECTVALUE(op->parms.parms[0]->parms.dv.directValue / op->parms.parms[1]->parms.dv.directValue);
+					case FN_DIVIDE:   RESTART_DIRECTVALUE(EEL_BC_SAFE_DIVIDE(op->parms.parms[0]->parms.dv.directValue, op->parms.parms[1]->parms.dv.directValue));
 					case FN_MULTIPLY: RESTART_DIRECTVALUE(op->parms.parms[0]->parms.dv.directValue * op->parms.parms[1]->parms.dv.directValue);
 					case FN_ADD:      RESTART_DIRECTVALUE(op->parms.parms[0]->parms.dv.directValue + op->parms.parms[1]->parms.dv.directValue);
 					case FN_SUB:      RESTART_DIRECTVALUE(op->parms.parms[0]->parms.dv.directValue - op->parms.parms[1]->parms.dv.directValue);
@@ -8000,7 +8018,9 @@ float *nseel_int_register_var(compileContext *ctx, const char *name, int32_t isR
 		}
 		ctx->varTable_numBlocks++;
 		ctx->varTable_Values[wb] = (float *)newCtxDataBlock(sizeof(float)*NSEEL_VARS_PER_BLOCK, 8);
-		ctx->varTable_Names[wb] = (char **)newCtxDataBlock(sizeof(char *)*NSEEL_VARS_PER_BLOCK, 1);
+		/* This block stores char* entries; byte alignment misaligns the table
+		 * on architectures requiring naturally aligned pointer loads. */
+		ctx->varTable_Names[wb] = (char **)newCtxDataBlock(sizeof(char *)*NSEEL_VARS_PER_BLOCK, sizeof(char *));
 		if (ctx->varTable_Values[wb])
 		{
 			memset(ctx->varTable_Values[wb], 0, sizeof(float)*NSEEL_VARS_PER_BLOCK);

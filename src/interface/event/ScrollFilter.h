@@ -10,6 +10,8 @@ class ScrollFilter :
 	Q_OBJECT
 
 public:
+	explicit ScrollFilter(QObject *parent = nullptr) : QObject(parent) {}
+
 	bool eventFilter(QObject *object,
 	                 QEvent  *event) override
 	{

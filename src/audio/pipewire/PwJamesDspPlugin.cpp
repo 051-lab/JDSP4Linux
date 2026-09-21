@@ -69,7 +69,7 @@ PwJamesDspPlugin::~PwJamesDspPlugin() {
 }
 
 void PwJamesDspPlugin::setup() {
-    JamesDSPSetSampleRate(this->dsp, rate, 0);
+    JamesDSPSetSampleRate(this->dsp, rate.load(std::memory_order_acquire), 0);
 }
 
 void PwJamesDspPlugin::process(float* left_in,
@@ -106,7 +106,7 @@ DspStatus PwJamesDspPlugin::status()
 {
     DspStatus status;
     status.AudioFormat = "32-bit floating point samples, little endian";
-    status.SamplingRate = std::to_string(rate);
+    status.SamplingRate = std::to_string(rate.load(std::memory_order_acquire));
     status.IsProcessing = !bypass;
     return status;
 }

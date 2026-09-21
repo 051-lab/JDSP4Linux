@@ -30,7 +30,7 @@ jobs:
     
     - uses: actions/checkout@v4
       with:
-        ref: 'master'
+        ref: ${{ github.sha }}
         submodules: 'recursive'
  
     - name: Install dependencies (PulseAudio flavor)
@@ -43,21 +43,25 @@ jobs:
      
     - name: Initialize project (PulseAudio/full)
       if: matrix.flavor == 'full'
-      run: qmake6 JDSP4Linux.pro "CONFIG += CI" "CONFIG += USE_PULSEAUDIO"
+      run: |
+        mkdir -p build/ci-pulse-${{ matrix.flavor }}
+        qmake6 JDSP4Linux.pro "CONFIG += CI" "CONFIG += USE_PULSEAUDIO" -o build/ci-pulse-${{ matrix.flavor }}/Makefile
 
     - name: Initialize project (PulseAudio/headless)
       if: matrix.flavor == 'headless'
-      run: qmake6 JDSP4Linux.pro "CONFIG += CI" "CONFIG += USE_PULSEAUDIO" "CONFIG+=HEADLESS"
+      run: |
+        mkdir -p build/ci-pulse-${{ matrix.flavor }}
+        qmake6 JDSP4Linux.pro "CONFIG += CI" "CONFIG += USE_PULSEAUDIO" "CONFIG+=HEADLESS" -o build/ci-pulse-${{ matrix.flavor }}/Makefile
 
     - name: Build
       run: |
-        make
+        make -C build/ci-pulse-${{ matrix.flavor }} -j1
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: jamesdsp-pulse-${{ matrix.flavor }}_portable_linux64
-        path: src/jamesdsp
+        path: build/ci-pulse-${{ matrix.flavor }}/src/jamesdsp
         
   build-pipewire-amd64:
     runs-on: ubuntu-latest
@@ -77,7 +81,7 @@ jobs:
 
     - uses: actions/checkout@v4
       with:
-        ref: 'master'
+        ref: ${{ github.sha }}
         submodules: 'recursive'
 
     - name: Install dependencies (PipeWire flavor)
@@ -89,23 +93,27 @@ jobs:
       
     - name: Initialize project (PW/full)
       if: matrix.flavor == 'full'
-      run: qmake6 JDSP4Linux.pro "CONFIG += CI"
+      run: |
+        mkdir -p build/ci-pipewire-${{ matrix.flavor }}
+        qmake6 JDSP4Linux.pro "CONFIG += CI" -o build/ci-pipewire-${{ matrix.flavor }}/Makefile
 
     - name: Initialize project (PW/headless)
       if: matrix.flavor == 'headless'
-      run: qmake6 JDSP4Linux.pro "CONFIG += CI" "CONFIG+=HEADLESS"
+      run: |
+        mkdir -p build/ci-pipewire-${{ matrix.flavor }}
+        qmake6 JDSP4Linux.pro "CONFIG += CI" "CONFIG+=HEADLESS" -o build/ci-pipewire-${{ matrix.flavor }}/Makefile
 
 
     - name: Build
       run: |
-        make -j4
-        strip --strip-unneeded src/jamesdsp
+        make -C build/ci-pipewire-${{ matrix.flavor }} -j1
+        strip --strip-unneeded build/ci-pipewire-${{ matrix.flavor }}/src/jamesdsp
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: jamesdsp-pipewire-${{ matrix.flavor }}_portable_linux64
-        path: src/jamesdsp
+        path: build/ci-pipewire-${{ matrix.flavor }}/src/jamesdsp
     
   build-deb-amd64:
     runs-on: ubuntu-latest
@@ -118,7 +126,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: 'recursive'
-        ref: 'master'
+        ref: ${{ github.sha }}
         
     - name: Prepare version information (1/3)
       uses: oprypin/find-latest-tag@v1
@@ -132,7 +140,7 @@ jobs:
       with:
         length: 6
     - name: Prepare version information (3/3)
-      run: echo '::set-output name=version::${{steps.last_release.outputs.tag}}-${{steps.short-sha.outputs.sha}}'
+      run: echo "version=${{steps.last_release.outputs.tag}}-${{steps.short-sha.outputs.sha}}" >> "$GITHUB_OUTPUT"
       id: version
       
     - name: Download artifact
@@ -152,6 +160,7 @@ jobs:
         path: jamesdsp-${{ matrix.flavor }}_${{steps.version.outputs.version}}_ubuntu22-04_amd64.deb
 
   publish-nightly:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     needs: [build-deb-amd64]
     strategy:
@@ -172,7 +181,7 @@ jobs:
       with:
         length: 6
     - name: Prepare version information (3/3)
-      run: echo '::set-output name=version::${{steps.last_release.outputs.tag}}-${{steps.short-sha.outputs.sha}}'
+      run: echo "version=${{steps.last_release.outputs.tag}}-${{steps.short-sha.outputs.sha}}" >> "$GITHUB_OUTPUT"
       id: version
                    
     - name: Download package artifact
@@ -190,6 +199,155 @@ jobs:
         local_path: './jamesdsp-${{ matrix.flavor }}_${{steps.version.outputs.version}}_ubuntu22-04_amd64.deb'
         remote_path: '/srv/http/nightly.timschneeberger.me/jamesdsp-linux/'
         args: '-o ConnectTimeout=5'
+
+  verify-native:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    steps:
+    - name: Install native test dependencies
+      run: |
+        apt update
+        DEBIAN_FRONTEND=noninteractive apt install -y git make gcc g++ pkg-config python3 libarchive-dev qt6-base-dev libqt6core5compat6-dev
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.sha }}
+        submodules: recursive
+    - name: Record source identity
+      run: |
+        mkdir -p build/jamesdsp/reports
+        git rev-parse HEAD | tee build/jamesdsp/reports/source-sha.txt
+        git submodule status --recursive | tee build/jamesdsp/reports/submodule-shas.txt
+    - name: Build and run native regressions
+      run: |
+        mkdir -p build/jamesdsp/libjamesdsp build/jamesdsp/libjamesdsp/tests
+        qmake6 libjamesdsp/libjamesdsp.pro -o build/jamesdsp/libjamesdsp/Makefile
+        make -C build/jamesdsp/libjamesdsp -j2
+        qmake6 libjamesdsp/tests/tests.pro -o build/jamesdsp/libjamesdsp/tests/Makefile
+        make -C build/jamesdsp/libjamesdsp/tests -j2
+        build/jamesdsp/libjamesdsp/tests/liveprog_runtime_test
+        qmake6 libjamesdsp/tests/rate_transition_test.pro -o build/jamesdsp/libjamesdsp/tests/rate-transition.Makefile
+        make -C build/jamesdsp/libjamesdsp/tests -f rate-transition.Makefile -j2
+        timeout 5 build/jamesdsp/libjamesdsp/tests/rate_transition_test
+        qmake6 libjamesdsp/tests/crossfeed_lifecycle_test.pro -o build/jamesdsp/libjamesdsp/tests/crossfeed-lifecycle.Makefile
+        make -C build/jamesdsp/libjamesdsp/tests -f crossfeed-lifecycle.Makefile -j2
+        timeout 10 build/jamesdsp/libjamesdsp/tests/crossfeed_lifecycle_test
+        timeout 300 python3 libjamesdsp/tests/run_eel_corpus.py --skip-external libjamesdsp/tests/eel_corpus_manifest.json build/jamesdsp/libjamesdsp/tests/liveprog_runtime_test
+        timeout 300 python3 libjamesdsp/tests/compare_eel_manifest.py libjamesdsp/tests/eel_corpus_manifest.json build/jamesdsp/libjamesdsp/tests/liveprog_runtime_test build/jamesdsp/reports/eel-corpus-comparison.json --skip-external
+    - name: Run repository contracts and AutoEQ native tests
+      run: |
+        python3 meta/tests/workflow_contract_test.py
+        BUILD_ROOT=build/jamesdsp/packaging meta/tests/packaging_contract_test.sh
+        bash src/tests/pipewire_rt_contract_test.sh
+        bash src/tests/pulse_wrapper_contract_test.sh
+        bash src/tests/visual_theme_registry_test.sh
+        bash -n meta/flatpak/build-local-bundle.sh meta/build_deb_package.sh
+        mkdir -p build/jamesdsp/qt-tests
+        qmake6 src/tests/untar_test.pro -o build/jamesdsp/qt-tests/untar.Makefile
+        make -C build/jamesdsp/qt-tests -f untar.Makefile -j2
+        build/jamesdsp/qt-tests/untar_test
+        qmake6 src/tests/gzip_downloader_test.pro -o build/jamesdsp/qt-tests/gzip-downloader.Makefile
+        make -C build/jamesdsp/qt-tests -f gzip-downloader.Makefile -j2
+        build/jamesdsp/qt-tests/gzip_downloader_test
+        qmake6 src/tests/eel_parser_test.pro -o build/jamesdsp/qt-tests/eel-parser.Makefile
+        make -C build/jamesdsp/qt-tests -f eel-parser.Makefile -j2
+        build/jamesdsp/qt-tests/eel_parser_test
+        qmake6 src/tests/codeeditor_sync_test.pro -o build/jamesdsp/qt-tests/codeeditor-sync.Makefile
+        make -C build/jamesdsp/qt-tests -f codeeditor-sync.Makefile -j2
+        QT_QPA_PLATFORM=offscreen build/jamesdsp/qt-tests/codeeditor_sync_test
+        qmake6 src/tests/liveprog_editor_bridge_test.pro -o build/jamesdsp/qt-tests/liveprog-editor-bridge.Makefile
+        make -C build/jamesdsp/qt-tests -f liveprog-editor-bridge.Makefile -j2
+        QT_QPA_PLATFORM=offscreen build/jamesdsp/qt-tests/liveprog_editor_bridge_test
+        qmake6 src/tests/dsp_host_reload_test.pro DSP_LIB_DIR="$GITHUB_WORKSPACE/build/jamesdsp/libjamesdsp" -o build/jamesdsp/qt-tests/dsp-host.Makefile
+        make -C build/jamesdsp/qt-tests -f dsp-host.Makefile -j2
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp/qt-tests/dsp_host_reload_test
+        qmake6 src/tests/preset_manager_test.pro -o build/jamesdsp/qt-tests/preset-manager.Makefile
+        make -C build/jamesdsp/qt-tests -f preset-manager.Makefile -j2
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp/qt-tests/preset_manager_test
+    - name: Upload verification identity
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-verification-identity-${{ github.sha }}
+        path: build/jamesdsp/reports
+
+  verify-native-sanitizers:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    steps:
+    - name: Install native sanitizer dependencies
+      run: |
+        apt update
+        DEBIAN_FRONTEND=noninteractive apt install -y git make gcc g++ pkg-config libglib2.0-dev libarchive-dev qt6-base-dev libqt6core5compat6-dev
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.sha }}
+        submodules: recursive
+    - name: Record sanitizer source identity
+      run: |
+        mkdir -p build/jamesdsp-asan/reports
+        {
+          printf 'github_sha=%s\n' "${GITHUB_SHA}"
+          printf 'github_ref=%s\n' "${GITHUB_REF}"
+          printf 'github_event=%s\n' "${GITHUB_EVENT_NAME}"
+          printf 'git_head='; git rev-parse HEAD
+          printf 'qmake_config=CONFIG+=DEBUG_ASAN DEFINES+=JDSP_TEST_HOOKS\n'
+          printf 'submodules:\n'
+          git submodule status --recursive
+        } > build/jamesdsp-asan/reports/source-identity.txt
+    - name: Build and run ASan/UBSan regressions
+      run: |
+        mkdir -p build/jamesdsp-asan/libjamesdsp build/jamesdsp-asan/libjamesdsp/tests
+        qmake6 libjamesdsp/libjamesdsp.pro 'CONFIG += DEBUG_ASAN' DEFINES+=JDSP_TEST_HOOKS -o build/jamesdsp-asan/libjamesdsp/Makefile
+        make -C build/jamesdsp-asan/libjamesdsp -j2
+        qmake6 libjamesdsp/tests/tests.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/libjamesdsp/tests/Makefile
+        make -C build/jamesdsp-asan/libjamesdsp/tests -j2
+        qmake6 libjamesdsp/tests/asrc_capacity_test.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/libjamesdsp/tests/asrc-capacity.Makefile
+        make -C build/jamesdsp-asan/libjamesdsp/tests -f asrc-capacity.Makefile -j2
+        qmake6 libjamesdsp/tests/rate_transition_test.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/libjamesdsp/tests/rate-transition.Makefile
+        make -C build/jamesdsp-asan/libjamesdsp/tests -f rate-transition.Makefile -j2
+        qmake6 libjamesdsp/tests/crossfeed_lifecycle_test.pro 'CONFIG += DEBUG_ASAN' LIBS+=-Lbuild/jamesdsp-asan/libjamesdsp -o build/jamesdsp-asan/libjamesdsp/tests/crossfeed-lifecycle.Makefile
+        make -C build/jamesdsp-asan/libjamesdsp/tests -f crossfeed-lifecycle.Makefile -j2
+        qmake6 libjamesdsp/tests/process_allocation_test.pro 'CONFIG += DEBUG_ASAN' LIBS+=-Lbuild/jamesdsp-asan/libjamesdsp -o build/jamesdsp-asan/libjamesdsp/tests/process-allocation.Makefile
+        make -C build/jamesdsp-asan/libjamesdsp/tests -f process-allocation.Makefile -j2
+        qmake6 libjamesdsp/tests/liveprog_reload_lock_test.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/libjamesdsp/tests/reload-lock.Makefile
+        make -C build/jamesdsp-asan/libjamesdsp/tests -f reload-lock.Makefile -j2
+        mkdir -p build/jamesdsp-asan/qt-tests
+        qmake6 src/tests/eel_parser_test.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/qt-tests/eel-parser.Makefile
+        make -C build/jamesdsp-asan/qt-tests -f eel-parser.Makefile -j2
+        qmake6 src/tests/codeeditor_sync_test.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/qt-tests/codeeditor-sync.Makefile
+        make -C build/jamesdsp-asan/qt-tests -f codeeditor-sync.Makefile -j2
+        qmake6 src/tests/liveprog_editor_bridge_test.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/qt-tests/liveprog-editor-bridge.Makefile
+        make -C build/jamesdsp-asan/qt-tests -f liveprog-editor-bridge.Makefile -j2
+        qmake6 src/tests/gzip_downloader_test.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/qt-tests/gzip-downloader.Makefile
+        make -C build/jamesdsp-asan/qt-tests -f gzip-downloader.Makefile -j2
+        qmake6 src/tests/dsp_host_reload_test.pro 'CONFIG += DEBUG_ASAN' DSP_LIB_DIR="$GITHUB_WORKSPACE/build/jamesdsp-asan/libjamesdsp" -o build/jamesdsp-asan/qt-tests/dsp-host.Makefile
+        make -C build/jamesdsp-asan/qt-tests -f dsp-host.Makefile -j2
+        qmake6 src/tests/preset_manager_test.pro 'CONFIG += DEBUG_ASAN' -o build/jamesdsp-asan/qt-tests/preset-manager.Makefile
+        make -C build/jamesdsp-asan/qt-tests -f preset-manager.Makefile -j2
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp-asan/libjamesdsp/tests/asrc_capacity_test
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp-asan/libjamesdsp/tests/liveprog_runtime_test
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 timeout 5 build/jamesdsp-asan/libjamesdsp/tests/rate_transition_test
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 timeout 10 build/jamesdsp-asan/libjamesdsp/tests/crossfeed_lifecycle_test
+        for mode in default compressor bass reverb stereo tube crossfeed; do
+          if [ "$mode" = default ]; then
+            ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 timeout 20 build/jamesdsp-asan/libjamesdsp/tests/process_allocation_test
+          else
+            ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 timeout 20 build/jamesdsp-asan/libjamesdsp/tests/process_allocation_test "$mode"
+          fi
+        done
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 timeout 60 build/jamesdsp-asan/libjamesdsp/tests/liveprog_reload_lock_test
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp-asan/qt-tests/eel_parser_test
+        QT_QPA_PLATFORM=offscreen ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp-asan/qt-tests/codeeditor_sync_test
+        QT_QPA_PLATFORM=offscreen ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp-asan/qt-tests/liveprog_editor_bridge_test
+        QT_QPA_PLATFORM=offscreen ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp-asan/qt-tests/gzip_downloader_test
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 timeout 60 build/jamesdsp-asan/qt-tests/dsp_host_reload_test
+        ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/jamesdsp-asan/qt-tests/preset_manager_test
+    - name: Upload sanitizer verification identity
+      uses: actions/upload-artifact@v4
+      with:
+        name: sanitizer-verification-identity-${{ github.sha }}
+        path: build/jamesdsp-asan/reports/source-identity.txt
 
   update-ppa:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' 
@@ -221,7 +379,7 @@ jobs:
       with:
         length: 6
     - name: Prepare version information (3/3)
-      run: echo '::set-output name=version::${{steps.last_release.outputs.tag}}-${{steps.short-sha.outputs.sha}}'
+      run: echo "version=${{steps.last_release.outputs.tag}}-${{steps.short-sha.outputs.sha}}" >> "$GITHUB_OUTPUT"
       id: version
         
     - name: Download package artifact
@@ -289,7 +447,7 @@ jobs:
       with:
         length: 6
     - name: Prepare version information (3/3)
-      run: echo '::set-output name=version::${{steps.last_release.outputs.tag}}-${{steps.short-sha.outputs.sha}}'
+      run: echo "version=${{steps.last_release.outputs.tag}}-${{steps.short-sha.outputs.sha}}" >> "$GITHUB_OUTPUT"
       id: version
       
     - name: Download package artifact

@@ -1,0 +1,7 @@
+QWidget { font-size: 10pt; }
+QPushButton, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox { border-radius: 8px; padding: 6px 10px; border: 1px solid palette(mid); }
+QPushButton:hover, QComboBox:hover, QLineEdit:hover { background: palette(alternate-base); border-color: palette(highlight); }
+QPushButton:focus, QComboBox:focus, QLineEdit:focus { border: 2px solid palette(highlight); }
+QTabBar::tab { padding: 8px 14px; border-radius: 6px 6px 0 0; }
+QSlider::groove:horizontal { height: 6px; border-radius: 3px; }
+QSlider::handle:horizontal { width: 16px; margin: -5px 0; border-radius: 8px; }

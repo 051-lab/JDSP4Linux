@@ -1,4 +1,5 @@
 #include "FileSelectionWidget.h"
+#include "data/SafeFileOperations.h"
 #include "ui_FileSelectionWidget.h"
 
 #include <QFileDialog>
@@ -153,7 +154,7 @@ void FileSelectionWidget::onDirectoryChangeRequested()
 
 void FileSelectionWidget::onBookmarkRequested()
 {
-    if(ui->fileview->selectedItems().count() < 1 || !bookmarkDirectory().has_value())
+    if(ui->fileview->selectedItems().count() < 1 || !bookmarkDirectory().has_value() || !currentFile().has_value())
     {
         return;
     }
@@ -161,12 +162,8 @@ void FileSelectionWidget::onBookmarkRequested()
     QString src  = currentDirectory().filePath(currentFile().value());
     QString dest = bookmarkDirectory().value().filePath(currentFileName().value());
 
-    if (QFile::exists(dest))
-    {
-        QFile::remove(dest);
-    }
-
-    QFile::copy(src, dest);
+	if (!SafeFileOperations::copyAtomically(src, dest))
+		return;
     enumerateFiles();
 
     emit bookmarkAdded(dest);
@@ -202,12 +199,17 @@ void FileSelectionWidget::onRenameRequested()
     QString name = QInputDialog::getText(this, "Rename",
                                          "New name", QLineEdit::Normal,
                                          ui->fileview->selectedItems().first()->text(), &ok);
-    QString src  = currentDirectory().filePath(currentFile().value());
+    const auto selectedFile = currentFile();
+    if (!selectedFile.has_value())
+        return;
+    QString src  = currentDirectory().filePath(selectedFile.value());
     QString dest = currentDirectory().filePath(name);
 
-    if (ok && !name.isEmpty())
+    if (ok && SafeFileOperations::isSafeName(name))
     {
-        QFile::rename(src, dest);
+		if (!SafeFileOperations::renameWithinDirectory(currentDirectory(),
+			QFileInfo(src).fileName(), QFileInfo(dest).fileName()))
+			return;
     }
 
     enumerateFiles();
@@ -220,12 +222,14 @@ void FileSelectionWidget::onRemoveRequested()
         return;
     }
 
-    QString path = currentDirectory().filePath(currentFile().value());
-
-    if (QFile::exists(path))
-    {
-        QFile(path).remove();
-    }
+    const auto selectedFile = currentFile();
+    if (!selectedFile.has_value())
+        return;
+    const QFileInfo fileInfo(selectedFile.value());
+    if (fileInfo.absolutePath() != currentDirectory().absolutePath())
+        return;
+    if(!SafeFileOperations::removeWithinDirectory(currentDirectory(), fileInfo.fileName()))
+        return;
 
     enumerateFiles();
 }
@@ -259,4 +263,3 @@ void FileSelectionWidget::setContextButtonsAvailable(bool b)
     ui->remove->setEnabled(b);
     ui->bookmark->setEnabled(b);
 }
-

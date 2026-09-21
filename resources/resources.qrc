@@ -40,6 +40,11 @@
         <file>assets/DDCData.json</file>
         <file>styles/default.qss</file>
         <file>styles/overlay.qss</file>
+        <file>styles/themes/classic.qss</file>
+        <file>styles/themes/studio.qss</file>
+        <file>styles/themes/midnight.qss</file>
+        <file>styles/themes/paper.qss</file>
+        <file>styles/themes/highcontrast.qss</file>
         <file>icons/power.svg</file>
         <file>icons/power-white.svg</file>
         <file>assets/default.conf</file>

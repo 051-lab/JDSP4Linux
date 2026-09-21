@@ -25,6 +25,7 @@
 #include <QObject>
 #include <QMetaEnum>
 #include <QFileSystemWatcher>
+#include <QFileInfo>
 #include <QDebug>
 
 using namespace std;
@@ -153,19 +154,27 @@ public:
         emit updated(this);
     }
 
-	template<class T>
+    template<class T>
     T get(const QString &key, bool* exists = nullptr, bool useDefaultIfMissing = true)
     {
-        auto variant = _conf->getVariant(key, true, exists);
+        bool explicitlyExists = false;
+        auto variant = _conf->getVariant(key, true, &explicitlyExists);
 
         if(useDefaultIfMissing) {
-            if(exists != nullptr && !*exists) {
+            if(!explicitlyExists) {
                 Log::debug(QString("Key '%1' unset, loading default value").arg(key));
-                variant = _defaultConf->getVariant(key, true, exists);
+                variant = _defaultConf->getVariant(key, true, nullptr);
             }
-            if(exists != nullptr && !*exists)
+            if(!explicitlyExists && !variant.isValid())
                 Log::error(QString("Key '%1' unset and no default value found").arg(key));
         }
+
+        // `exists` describes the explicit configuration, not whether a
+        // fallback default supplied the returned value. This lets callers
+        // distinguish an inherited default from persisted user state while
+        // every caller still receives the intended value.
+        if(exists != nullptr)
+            *exists = explicitlyExists;
 
         if constexpr (std::is_same_v<T, QVariant>) {
             return (T)(variant);
@@ -294,6 +303,13 @@ public:
 		}
 	}
 
+    ~DspConfig()
+    {
+        delete _watcher;
+        delete _conf;
+        delete _defaultConf;
+    }
+
 signals:
 	void configBuffered();
     void updated(DspConfig* self);
@@ -302,18 +318,23 @@ signals:
 private slots:
     void fileChanged(const QString &path)
     {
-        if(_watcher->files().contains(path))
-        {
-            Log::debug("Config changed");
-            load();
-            emit updatedExternally(this);
-        }
+        if(path != AppConfig::instance().getDspConfPath())
+            return;
+
+        Log::debug("Config changed");
+        load();
+        // Atomic saves replace the watched inode and Qt removes the path
+        // from the watcher. Re-register it so later changes continue to
+        // reach the DSP instead of silently becoming stale.
+        if(QFileInfo::exists(path) && !_watcher->files().contains(path))
+            _watcher->addPath(path);
+        emit updatedExternally(this);
     }
 
 private:
     ConfigContainer *_conf;
     ConfigContainer *_defaultConf;
-    QFileSystemWatcher *_watcher;
+    QFileSystemWatcher *_watcher = nullptr;
 };
 
 Q_DECLARE_METATYPE(DspConfig::Key)

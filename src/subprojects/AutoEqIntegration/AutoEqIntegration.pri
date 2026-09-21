@@ -10,6 +10,7 @@ HEADERS += \
     $$PWD/AeqMeasurementItem.h \
     $$PWD/AeqMeasurementModel.h \
     $$PWD/AeqPackageManager.h \
+    $$PWD/AeqPackageValidation.h \
     $$PWD/AeqPreviewPlot.h \
     $$PWD/AeqSelector.h \
     $$PWD/AeqStructs.h \
@@ -23,6 +24,7 @@ SOURCES += \
     $$PWD/AeqMeasurementItem.cpp \
     $$PWD/AeqMeasurementModel.cpp \
     $$PWD/AeqPackageManager.cpp \
+    $$PWD/AeqPackageValidation.cpp \
     $$PWD/AeqPreviewPlot.cpp \
     $$PWD/AeqSelector.cpp \
     $$PWD/GzipDownloader.cpp \

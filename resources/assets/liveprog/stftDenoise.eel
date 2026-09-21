@@ -56,8 +56,9 @@ lastMemIdx = recipocalExp + TBL5Len;
 frameLen = 2048;
 halfLen = floor(frameLen / 2) + 1;
 kOverlapCount = 4;
-nes1.nesInit(frameLen, kOverlapCount, sr);
-nes2.nesInit(frameLen, kOverlapCount, sr);
+// srate is registered by the native host; keep smoothing tied to its actual rate.
+nes1.nesInit(frameLen, kOverlapCount, srate);
+nes2.nesInit(frameLen, kOverlapCount, srate);
 stftIndexLeft = lastMemIdx;
 stftIndexRight = stftIndexLeft + 50;
 memreq = stftCheckMemoryRequirement(stftIndexLeft, frameLen, kOverlapCount, 1);

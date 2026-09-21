@@ -11,7 +11,7 @@ class AeqPackageManager : public QObject
 {
     Q_OBJECT
 public:
-    explicit AeqPackageManager(QObject *parent = nullptr);
+    explicit AeqPackageManager(QObject *parent = nullptr, QString databaseOverride = {});
 
     QtPromise::QPromise<void> installPackage(AeqVersion version, QWidget* hostWindow = nullptr);
     bool uninstallPackage();
@@ -26,6 +26,7 @@ public:
 
 private:
     QNetworkAccessManager* nam;
+    QString databaseOverride;
 
 };
 

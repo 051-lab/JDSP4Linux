@@ -17,8 +17,12 @@ class GzipDownloaderDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit GzipDownloaderDialog(QNetworkReply* _reply, QDir targetDirectory, QWidget *parent = nullptr);
+    explicit GzipDownloaderDialog(QNetworkReply* _reply, QDir targetDirectory, QWidget *parent = nullptr,
+                                  GzipDownloader::PackageValidator packageValidator = {});
     ~GzipDownloaderDialog();
+
+public slots:
+    void reject() override;
 
 protected:
     void showEvent(QShowEvent *ev) override;
@@ -29,6 +33,7 @@ private slots:
     void onError(const QString &msg);
     void onDownloadProgressUpdated(qint64 recv, qint64 total);
     void onDecompressionStarted();
+    void onValidationStarted();
 
 private:
     Ui::FileDownloaderDialog *ui;

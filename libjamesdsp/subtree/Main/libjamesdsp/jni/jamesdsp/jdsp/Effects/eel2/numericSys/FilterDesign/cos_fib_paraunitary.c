@@ -740,7 +740,17 @@ void subsamplingCal(unsigned int M, double alpha, double *f_def, unsigned int *S
 		for (unsigned int nk = 0; nk < nk_max; nk++)
 		{
 			unsigned int ub = (unsigned int)((nk + 1) / (2 * fU));
-			unsigned int lb = (unsigned int)max(ceil(nk / (2 * fL)), 1.0) - 1;
+			unsigned int lb;
+			if (fL <= 0.0)
+			{
+				/* At the zero-frequency edge, nk=0 has a zero lower bound;
+				 * positive nk values have no finite lower-band candidates. */
+				if (nk != 0)
+					continue;
+				lb = 0;
+			}
+			else
+				lb = (unsigned int)max(ceil(nk / (2 * fL)), 1.0) - 1;
 			if (ub >= lb)
 			{
 				for (unsigned int s = lb; s < ub; s++)

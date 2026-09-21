@@ -59,6 +59,7 @@ private slots:
     void onAutoStartToggled();
     void onSystrayToggled();
     void onThemeSelected(int index);
+    void onVisualThemeSelected(int index);
     void onPaletteSelected(int index);
     void onBlocklistInvertToggled(bool state);
     void onBlocklistClearClicked();

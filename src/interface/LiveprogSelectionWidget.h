@@ -29,6 +29,7 @@ public:
 
 signals:
     void liveprogReloadRequested();
+    void liveprogVariableChanged(const QString& name, float value);
     void toggled(bool on);
     void scriptChanged(const QString& path);
     void unitLabelUpdateRequested(const QString& msg);

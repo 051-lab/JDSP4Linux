@@ -44,7 +44,7 @@ void CrossfeedProcessTwoStageFFTConvolver2x4x2(JamesDSPLib *jdsp, size_t n)
 void CrossfeedEnable(JamesDSPLib *jdsp, char enable)
 {
     jdsp_lock(jdsp);
-	if (jdsp->crossfeedForceRefresh || !jdsp->advXF.conv[0] || !jdsp->advXF.conv[1] || !jdsp->advXF.conv[2] || !jdsp->advXF.convLong_S_S || !jdsp->advXF.convLong_T_S)
+	if (jdsp->crossfeedForceRefresh || !jdsp->advXF.conv[0] || !jdsp->advXF.conv[1] || !jdsp->advXF.conv[2] || (!jdsp->advXF.convLong_S_S && !jdsp->advXF.convLong_T_S))
 	{
 		CrossfeedDestructor(jdsp);
 		jdsp->advXF.conv[0] = (FFTConvolver2x4x2 *)malloc(sizeof(FFTConvolver2x4x2));
@@ -86,7 +86,9 @@ void CrossfeedEnable(JamesDSPLib *jdsp, char enable)
 }
 void CrossfeedDisable(JamesDSPLib *jdsp)
 {
+	jdsp_lock(jdsp);
 	jdsp->crossfeedEnabled = 0;
+	jdsp_unlock(jdsp);
 }
 void CrossfeedChangeMode(JamesDSPLib *jdsp, int nMode)
 {
@@ -94,6 +96,7 @@ void CrossfeedChangeMode(JamesDSPLib *jdsp, int nMode)
 		nMode = 0;
 	if (nMode > 5)
 		nMode = 5;
+	jdsp_lock(jdsp);
 	if (nMode < 2)
 	{
 		memset(&jdsp->advXF.bs2b, 0, sizeof(jdsp->advXF.bs2b));
@@ -103,6 +106,7 @@ void CrossfeedChangeMode(JamesDSPLib *jdsp, int nMode)
 			BS2BInit(&jdsp->advXF.bs2b[1], (unsigned int)jdsp->fs, BS2B_JMEIER_CLEVEL);
 	}
 	jdsp->advXF.mode = nMode;
+	jdsp_unlock(jdsp);
 }
 void CrossfeedProcess(JamesDSPLib *jdsp, size_t n)
 {

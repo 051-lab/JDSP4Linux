@@ -46,6 +46,7 @@ public:
         LiveprogAutoExtract,
 
         Theme,
+        VisualTheme,
         ThemeColors,
         ThemeColorsCustom,
         ThemeColorsCustomWhiteIcons,

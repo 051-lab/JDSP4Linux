@@ -7,6 +7,7 @@
 #include "config/AppConfig.h"
 #include "data/AssetManager.h"
 #include "interface/dialog/PaletteEditor.h"
+#include "utils/VisualTheme.h"
 #include "interface/QMenuEditor.h"
 #include "interface/TrayIcon.h"
 #include "MainWindow.h"
@@ -70,12 +71,21 @@ SettingsFragment::SettingsFragment(TrayIcon *trayIcon,
     ui->paletteSelect->addItem("Honeycomb",  "honeycomb");
 	ui->paletteSelect->addItem("Green",      "green");
 	ui->paletteSelect->addItem("Stone",      "stone");
+    ui->paletteSelect->addItem("Dracula",    "dracula");
+    ui->paletteSelect->addItem("Nord",       "nord");
+    ui->paletteSelect->addItem("Gruvbox",    "gruvbox");
+    ui->paletteSelect->addItem("Tokyo Night","tokyonight");
+    ui->paletteSelect->addItem("Catppuccin", "catppuccin");
 	ui->paletteSelect->addItem("Custom",     "custom");
 
     for ( const auto& i : QStyleFactory::keys())
 	{
 		ui->themeSelect->addItem(i);
 	}
+    for (const auto &theme : VisualThemeProvider::definitions())
+    {
+        ui->visualThemeSelect->addItem(theme.name, theme.id);
+    }
 
     /*
      * Session signals
@@ -91,6 +101,7 @@ SettingsFragment::SettingsFragment(TrayIcon *trayIcon,
      * Interface signals
      */
     connect(ui->themeSelect, qOverload<int>(&QComboBox::currentIndexChanged), this, &SettingsFragment::onThemeSelected);
+    connect(ui->visualThemeSelect, qOverload<int>(&QComboBox::currentIndexChanged), this, &SettingsFragment::onVisualThemeSelected);
     connect(ui->paletteSelect, qOverload<int>(&QComboBox::currentIndexChanged), this, &SettingsFragment::onPaletteSelected);
     connect(ui->paletteConfig, &QPushButton::clicked, _paletteEditor, &PaletteEditor::show);
     connect(ui->eq_alwaysdrawhandles, &QCheckBox::clicked, this, &SettingsFragment::onEqualizerHandlesToggled);
@@ -256,6 +267,13 @@ void SettingsFragment::refreshAll()
 		ui->paletteSelect->setCurrentIndex(index2);
 	}
 
+    QVariant qvVT(AppConfig::instance().get<QString>(AppConfig::VisualTheme));
+    int indexVT = ui->visualThemeSelect->findData(qvVT);
+    if (indexVT == -1)
+        indexVT = ui->visualThemeSelect->findData(VisualThemeProvider::defaultId());
+    if (indexVT != -1)
+        ui->visualThemeSelect->setCurrentIndex(indexVT);
+
     ui->paletteConfig->setEnabled(AppConfig::instance().get<QString>(AppConfig::ThemeColors) == "custom");
 
     ui->systray_r_none->setChecked(!AppConfig::instance().get<bool>(AppConfig::TrayIconEnabled));
@@ -382,6 +400,14 @@ void SettingsFragment::onThemeSelected(int index)
     }
 
     AppConfig::instance().set(AppConfig::Theme, ui->themeSelect->itemText(index).toUtf8().constData());
+}
+
+void SettingsFragment::onVisualThemeSelected(int index)
+{
+    if (_lockslot)
+        return;
+
+    AppConfig::instance().set(AppConfig::VisualTheme, ui->visualThemeSelect->itemData(index).toString());
 }
 
 void SettingsFragment::onPaletteSelected(int index)

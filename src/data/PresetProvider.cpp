@@ -50,11 +50,20 @@ namespace PresetProvider
 		for (auto key : table.keys())
 		{
 			QVector<double> row(table[key]);
+			if (data.size() != row.size())
+			{
+				continue;
+			}
 			int             it        = 0;
 			bool            different = false;
 
 			for (auto cur_data : row)
 			{
+				if (!std::isfinite(data.at(it)) || !std::isfinite(cur_data))
+				{
+					different = true;
+					break;
+				}
 				bool equal = isApproximatelyEqual<double>(cur_data, data.at(it), 0.01);
 
 				if (!equal)

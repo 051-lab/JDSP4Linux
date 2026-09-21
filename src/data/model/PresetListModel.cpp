@@ -4,8 +4,8 @@
 
 #include <QDir>
 
-PresetListModel::PresetListModel(QObject *parent)
-    : QAbstractListModel(parent)
+PresetListModel::PresetListModel(QObject *parent, QString directoryOverride)
+    : QAbstractListModel(parent), directoryOverride(std::move(directoryOverride))
 {
     rescan();
 }
@@ -41,7 +41,7 @@ void PresetListModel::rescan()
     beginResetModel();
     presets.clear();
 
-    QDir dir(AppConfig::instance().getPath("presets"));
+    QDir dir(this->directoryOverride.isEmpty() ? AppConfig::instance().getPath("presets") : this->directoryOverride);
     if (!dir.exists())
     {
         dir.mkpath(".");

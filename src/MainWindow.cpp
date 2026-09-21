@@ -307,7 +307,27 @@ MainWindow::MainWindow(IAudioService* audioService,
 
         // Liveprog
         connect(ui->liveprog, &LiveprogSelectionWidget::liveprogReloadRequested, _audioService, &IAudioService::reloadLiveprog);
+        connect(_audioService, &IAudioService::eelCompilationFinished, this,
+                [this](int ret, const QString&, const QString&, const QString&, float) {
+                    Q_UNUSED(ret);
+                    ui->liveprog->setActive(_audioService->host()->liveprogActive());
+                });
+        connect(ui->liveprog, &LiveprogSelectionWidget::liveprogVariableChanged, this,
+                [this](const QString& name, float value) {
+                    const QByteArray nameUtf8 = name.toUtf8();
+                    if (!_audioService->host()->manipulateEelVariable(nameUtf8.constData(), value))
+                        _audioService->reloadLiveprog();
+                });
+        connect(_eelEditor, &EELEditor::executionRequested, this,
+                [this](const QString& path) {
+                    ui->liveprog->updateFromEelEditor(path);
+                });
         connect(ui->liveprog, &LiveprogSelectionWidget::unitLabelUpdateRequested, ui->info, qOverload<const QString&>(&FadingLabel::setAnimatedText));
+        // Couple the embedded script IDE, otherwise the Edit-script button is dead (null editor guard)
+        ui->liveprog->coupleIDE(_eelEditor);
+#ifdef HAS_JDSP_DRIVER
+        _eelEditor->attachHost(_audioService);
+#endif
     }
 
     // Connect remaining signals
@@ -675,22 +695,26 @@ void MainWindow::loadConfig()
     }
 
     QVector<float> rawEqData;
+    bool rawEqValuesValid = true;
 
     for (const auto &val : rawEqString.split(";"))
     {
-        if (!val.isEmpty())
+        bool conversionOk = false;
+        float converted = val.toFloat(&conversionOk);
+        if (!val.isEmpty() && conversionOk && std::isfinite(converted))
         {
             if (isOldFormat)
             {
-                rawEqData.push_back(val.toFloat() / 100.f);
+                rawEqData.push_back(converted / 100.f);
             }
             else
             {
-                rawEqData.push_back(val.toFloat());
+                rawEqData.push_back(converted);
             }
         }
         else
         {
+            rawEqValuesValid = false;
             rawEqData.push_back(0.f);
         }
     }
@@ -717,8 +741,35 @@ void MainWindow::loadConfig()
         }
     }
 
-    // Decide if fixed or flexible EQ should be enabled
-    if (rawEqString.contains("25.0;40.0;63.0;100.0;160.0;250.0;400.0;630.0;1000.0;1600.0;2500.0;4000.0;6300.0;10000.0;16000.0"))
+    // Validate the complete input before updating either equalizer widget.
+    // The DSP host uses a neutral response for malformed EQ data, so mirror
+    // that fallback in the UI instead of applying a partial vector.
+    const bool isFixedEq = rawEqString.contains(
+        "25.0;40.0;63.0;100.0;160.0;250.0;400.0;630.0;1000.0;1600.0;2500.0;4000.0;6300.0;10000.0;16000.0");
+    const bool eqInputValid = rawEqValuesValid && rawEqData.size() == 30;
+    if (!eqInputValid)
+    {
+        Log::warning("Invalid EQ configuration. Expected 30 finite values; using a neutral equalizer response.");
+        const QVector<double> neutralBands = PresetProvider::EQ::defaultPreset();
+        if (isFixedEq)
+        {
+            setEqMode(0);
+            ui->eq_widget->setBands(neutralBands, false);
+        }
+        else
+        {
+            static const float defaultFrequencies[] = {
+                25.0f, 40.0f, 63.0f, 100.0f, 160.0f, 250.0f, 400.0f, 630.0f,
+                1000.0f, 1600.0f, 2500.0f, 4000.0f, 6300.0f, 10000.0f, 16000.0f
+            };
+            QMap<float, float> neutralMap;
+            for (float frequency : defaultFrequencies)
+                neutralMap.insert(frequency, 0.0f);
+            setEqMode(1);
+            ui->eq_dyn_widget->loadMap(neutralMap);
+        }
+    }
+    else if (isFixedEq)
     {
         // Use fixed 15-band EQ
         setEqMode(0);
@@ -730,6 +781,12 @@ void MainWindow::loadConfig()
         {
             if (it >= rawEqData.count())
             {
+                break;
+            }
+
+            if (it >= dbData.count())
+            {
+                eqReloadRequired = true;
                 break;
             }
 

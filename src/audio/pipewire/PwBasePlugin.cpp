@@ -21,6 +21,7 @@
 
 #include "Utils.h"
 
+#include <cstring>
 #include <thread>
 
 namespace {
@@ -35,29 +36,13 @@ void on_process(void* userdata, spa_io_position* position) {
         return;
     }
 
-    if (rate != d->pb->rate || n_samples != d->pb->n_samples) {
-        d->pb->rate = rate;
-        d->pb->n_samples = n_samples;
-
-        d->pb->dummy_left.resize(n_samples);
-        d->pb->dummy_right.resize(n_samples);
-
-        std::ranges::fill(d->pb->dummy_left, 0.0F);
-        std::ranges::fill(d->pb->dummy_right, 0.0F);
-
-        d->pb->clock_start = std::chrono::system_clock::now();
-
-        d->pb->setup();
+    if (rate != d->pb->requested_rate.load(std::memory_order_acquire) ||
+        n_samples != d->pb->requested_n_samples.load(std::memory_order_acquire)) {
+        d->pb->requested_rate.store(rate, std::memory_order_release);
+        d->pb->requested_n_samples.store(n_samples, std::memory_order_release);
+        d->pb->format_ready.store(false, std::memory_order_release);
+        d->pb->format_change_dispatcher.emit();
     }
-
-    d->pb->delta_t = 0.001F * static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                     std::chrono::system_clock::now() - d->pb->clock_start)
-                                                 .count());
-
-    d->pb->send_notifications = d->pb->delta_t >= d->pb->notification_time_window;
-
-
-    //util::warning("processing: " + std::to_string(n_samples));
 
     auto* in_left = static_cast<float*>(pw_filter_get_dsp_buffer(d->in_left, n_samples));
     auto* in_right = static_cast<float*>(pw_filter_get_dsp_buffer(d->in_right, n_samples));
@@ -74,6 +59,21 @@ void on_process(void* userdata, spa_io_position* position) {
     {
         return;
     }
+
+    if (!d->pb->format_ready.load(std::memory_order_acquire)) {
+        std::memcpy(out_left, in_left, n_samples * sizeof(float));
+        std::memcpy(out_right, in_right, n_samples * sizeof(float));
+        return;
+    }
+
+    d->pb->delta_t = 0.001F * static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                     std::chrono::system_clock::now() - d->pb->clock_start)
+                                                 .count());
+
+    d->pb->send_notifications = d->pb->delta_t >= d->pb->notification_time_window;
+
+
+    //util::warning("processing: " + std::to_string(n_samples));
 
     if (!d->pb->enable_probe) {
         d->pb->process(in_left, in_right, out_left, out_right, n_samples);
@@ -135,6 +135,7 @@ PwPluginBase::PwPluginBase(std::string tag,
       enable_probe(enable_probe),
       pm(pipe_manager) {
     pf_data.pb = this;
+    format_change_dispatcher.connect(sigc::mem_fun(*this, &PwPluginBase::apply_pending_format));
 
     const auto& filter_name = "jdsp_" + log_tag.substr(0, log_tag.size() - 2) + "_" + name;
 
@@ -242,6 +243,33 @@ PwPluginBase::~PwPluginBase() {
 
 void PwPluginBase::set_post_messages(const bool& state) {
     post_messages = state;
+}
+
+void PwPluginBase::apply_pending_format()
+{
+    const auto pending_rate = requested_rate.load(std::memory_order_acquire);
+    const auto pending_samples = requested_n_samples.load(std::memory_order_acquire);
+    if(pending_rate == 0 || pending_samples == 0)
+        return;
+
+    pm->lock();
+    set_active(false);
+    pm->sync_wait_unlock();
+
+    dummy_left.resize(pending_samples);
+    dummy_right.resize(pending_samples);
+    std::ranges::fill(dummy_left, 0.0F);
+    std::ranges::fill(dummy_right, 0.0F);
+
+    rate.store(pending_rate, std::memory_order_release);
+    n_samples.store(pending_samples, std::memory_order_release);
+    clock_start = std::chrono::system_clock::now();
+    setup();
+    format_ready.store(true, std::memory_order_release);
+
+    pm->lock();
+    set_active(true);
+    pm->sync_wait_unlock();
 }
 
 auto PwPluginBase::connect_to_pw() -> bool {

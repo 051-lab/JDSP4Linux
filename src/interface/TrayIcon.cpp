@@ -123,7 +123,6 @@ void TrayIcon::updateTheme()
     // Best effort theme detection
     bool isDark = true;
     QString gtkTheme = QString::fromLocal8Bit(qgetenv("GTK_THEME"));
-    Log::error(gtkTheme);
     if (gtkTheme.contains("light"))
         isDark = false;
     else if (gtkTheme.contains("dark"))

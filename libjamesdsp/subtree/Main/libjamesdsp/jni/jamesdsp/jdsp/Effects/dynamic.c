@@ -1604,7 +1604,11 @@ void CompressorEnable(JamesDSPLib *jdsp, char enable)
 	if (jdsp->compForceRefresh)
 	{
 		CompressorSetParam(jdsp, jdsp->comp.fgt_facT, jdsp->comp.granularity, jdsp->comp.tfresolution, 1);
-		CompressorSetGain(jdsp, 0, 0, 0);
+		/* An unconfigured compressor has no FFT grid yet. SetParam rejects its
+		 * zero time constant, so do not evaluate gain interpolation against the
+		 * zero-length state. */
+		if (jdsp->comp.fftLen > 0)
+			CompressorSetGain(jdsp, 0, 0, 0);
 	}
 	if (enable)
 		jdsp->compEnabled = 1;
@@ -1615,6 +1619,8 @@ void CompressorDisable(JamesDSPLib *jdsp)
 }
 void CompressorSetParam(JamesDSPLib *jdsp, float fgt_facT, int granularity, int tfresolution, char forceRefresh)
 {
+	if (!isfinite(fgt_facT) || fgt_facT <= 0.0f || !isfinite(jdsp->fs) || jdsp->fs <= 0.0f)
+		return;
 	FFTCompander *cm = (FFTCompander *)(&jdsp->comp);
 	if ((fgt_facT != cm->fgt_facT || tfresolution != cm->tfresolution || granularity != cm->granularity) || forceRefresh)
 	{

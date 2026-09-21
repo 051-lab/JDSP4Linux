@@ -203,18 +203,30 @@ gst_jamesdsp_get_property(GObject *object, guint prop_id,
 static gboolean
 gst_jamesdsp_setup(GstAudioFilter *base, const GstAudioInfo *info) {
     Gstjamesdsp *self = GST_JAMESDSP (base);
+    const gchar *format_name = NULL;
 
     g_mutex_lock(&self->lock);
     if (info) {
         self->samplerate = GST_AUDIO_INFO_RATE (info);
+        format_name = gst_audio_format_to_string(GST_AUDIO_INFO_FORMAT(info));
     } else {
         self->samplerate = GST_AUDIO_FILTER_RATE (self);
     }
+
+    self->format = -1;
+    if (format_name != NULL) {
+        if (strstr(format_name, "S16") != NULL)
+            self->format = 0;
+        else if (strstr(format_name, "S32") != NULL)
+            self->format = 1;
+        else if (strstr(format_name, "F32") != NULL)
+            self->format = 2;
+    }
     g_mutex_unlock(&self->lock);
 
-    if (self->samplerate <= 0)
+    if (self->samplerate <= 0 || self->format < 0)
     {
-        GST_WARNING_OBJECT (self, "current sample_rate < 1");
+        GST_WARNING_OBJECT (self, "unsupported audio format or current sample_rate < 1");
         return FALSE;
     }
 
@@ -237,7 +249,6 @@ static GstFlowReturn
 gst_jamesdsp_transform_ip(GstBaseTransform *base, GstBuffer *buf) {
     Gstjamesdsp *filter = GST_JAMESDSP (base);
     guint idx, num_samples;
-    float *pcm_data;
     GstClockTime timestamp, stream_time;
     GstMapInfo map;
 
@@ -251,65 +262,37 @@ gst_jamesdsp_transform_ip(GstBaseTransform *base, GstBuffer *buf) {
     if (G_UNLIKELY (GST_BUFFER_FLAG_IS_SET(buf, GST_BUFFER_FLAG_GAP)))
         return GST_FLOW_OK;
 
-    if (filter->enable)
-    {
-        gst_buffer_map(buf, &map, GST_MAP_READWRITE);
-        num_samples = map.size / GST_AUDIO_FILTER_BPS (filter) / 2;
-        pcm_data = (float *) (map.data);
-
-        g_mutex_lock(&filter->lock);
-
-        GstStructure *stru;
-        stru = gst_caps_get_structure (gst_pad_get_current_caps (base->sinkpad), 0);
-        if(strstr(gst_structure_get_string(stru, "format"),"S16LE")!=NULL)
-        {            
-            filter->format = 0;
-
-            int16_t* data = (int16_t*)map.data;
-            int16_t* out = malloc(2 * num_samples * sizeof(int16_t));
-
-            filter->dsp->processInt16Multiplexd(filter->dsp, data, out, num_samples);
-            for(uint32_t i = 0; i < num_samples * 2; i++)
-            {
-                data[i] = out[i];
-            }
-
-            free(out);
-        }
-        else if(strstr(gst_structure_get_string(stru, "format"),"S32LE")!=NULL)
-        {
-            filter->format = 1;
-
-            int32_t* data = (int32_t*)map.data;
-            int32_t* out = malloc(2 * num_samples * sizeof(int32_t));
-
-            filter->dsp->processInt32Multiplexd(filter->dsp, data, out, num_samples);
-            for(uint32_t i = 0; i < num_samples * 2; i++)
-            {
-                data[i] = out[i];
-            }
-
-            free(out);
-        }
-        else if(strstr(gst_structure_get_string(stru, "format"),"F32LE")!=NULL)
-        {
-            filter->format = 2;
-
-            float* data = (float*)map.data;
-            float* out = malloc(2 * num_samples * sizeof(float));
-
-            filter->dsp->processFloatMultiplexd(filter->dsp, data, out, num_samples);
-            for(uint32_t i = 0; i < num_samples * 2; i++)
-            {
-                data[i] = out[i];
-            }
-
-            free(out);
-        }
-
+    g_mutex_lock(&filter->lock);
+    if (!filter->enable) {
         g_mutex_unlock(&filter->lock);
-        gst_buffer_unmap(buf, &map);
+        return GST_FLOW_OK;
     }
+
+    if (!gst_buffer_map(buf, &map, GST_MAP_READWRITE)) {
+        g_mutex_unlock(&filter->lock);
+        return GST_FLOW_OK;
+    }
+
+    num_samples = map.size / GST_AUDIO_FILTER_BPS (filter) / 2;
+
+    if(filter->format == 0)
+    {
+        int16_t* data = (int16_t*)map.data;
+        filter->dsp->processInt16Multiplexd(filter->dsp, data, data, num_samples);
+    }
+    else if(filter->format == 1)
+    {
+        int32_t* data = (int32_t*)map.data;
+        filter->dsp->processInt32Multiplexd(filter->dsp, data, data, num_samples);
+    }
+    else if(filter->format == 2)
+    {
+        float* data = (float*)map.data;
+        filter->dsp->processFloatMultiplexd(filter->dsp, data, data, num_samples);
+    }
+
+    g_mutex_unlock(&filter->lock);
+    gst_buffer_unmap(buf, &map);
 
     return GST_FLOW_OK;
 }
@@ -322,5 +305,3 @@ gboolean jamesdsp_init(GstPlugin *jamesdsp) {
     return gst_element_register(jamesdsp, "jamesdsp", GST_RANK_NONE,
                                 GST_TYPE_JAMESDSP);
 }
-
-

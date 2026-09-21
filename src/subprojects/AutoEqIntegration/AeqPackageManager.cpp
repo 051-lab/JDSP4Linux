@@ -1,16 +1,23 @@
 #include "AeqPackageManager.h"
+#include "AeqPackageValidation.h"
 #include "GzipDownloaderDialog.h"
 #include "HttpException.h"
 
 #include "config/AppConfig.h"
+#include "data/SafeFileOperations.h"
 
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
 #include <QNetworkAccessManager>
+#include <QPointer>
+#include <QTemporaryDir>
+#include <utility>
 
 #define REPO_ROOT QString("https://raw.githubusercontent.com/ThePBone/AutoEqPackages/main")
 
-AeqPackageManager::AeqPackageManager(QObject *parent) : QObject(parent), nam(new QNetworkAccessManager(this))
+AeqPackageManager::AeqPackageManager(QObject *parent, QString databaseOverride) :
+    QObject(parent), nam(new QNetworkAccessManager(this)), databaseOverride(std::move(databaseOverride))
 {
     nam->setRedirectPolicy(QNetworkRequest::NoLessSafeRedirectPolicy);
 }
@@ -22,11 +29,33 @@ QtPromise::QPromise<void> AeqPackageManager::installPackage(AeqVersion version, 
                 const QtPromise::QPromiseReject<void>& reject) {
 
             auto reply = nam->get(QNetworkRequest(QUrl(version.packageUrl)));
-            auto downloader = new GzipDownloaderDialog(reply, databaseDirectory(), hostWindow);
-            bool success = downloader->exec();
-            downloader->deleteLater();
+            const QString database = databaseDirectory();
+            if(!QDir().mkpath(QFileInfo(database).absolutePath()))
+            {
+                reply->deleteLater();
+                reject();
+                return;
+            }
+            QTemporaryDir staging(QFileInfo(database).absolutePath() + "/.autoeq-staging-XXXXXX");
+            if(!staging.isValid())
+            {
+                reply->deleteLater();
+                reject();
+                return;
+            }
 
-            if(success)
+            QPointer<GzipDownloaderDialog> downloader = new GzipDownloaderDialog(reply, QDir(staging.path()), hostWindow,
+                [](const QString& path, const std::function<bool()>& cancellationRequested) {
+                    if (AeqPackageValidation::validPackage(path, cancellationRequested))
+                        return QString();
+                    return cancellationRequested() ? QStringLiteral("Package validation cancelled")
+                                                   : QStringLiteral("Downloaded package is invalid");
+                });
+            bool success = downloader->exec();
+            if(downloader)
+                downloader->deleteLater();
+
+            if(success && AeqPackageValidation::publishPackage(staging.path(), database))
                 resolve();
             else
                 reject();
@@ -40,9 +69,7 @@ bool AeqPackageManager::uninstallPackage()
 
 bool AeqPackageManager::isPackageInstalled()
 {
-    return QDir(databaseDirectory()).exists() &&
-            QFile(databaseDirectory() + "/version.json").exists() &&
-            QFile(databaseDirectory() + "/index.json").exists();
+    return AeqPackageValidation::validPackage(databaseDirectory());
 }
 
 QtPromise::QPromise<AeqVersion> AeqPackageManager::isUpdateAvailable()
@@ -137,15 +164,22 @@ QtPromise::QPromise<AeqVersion> AeqPackageManager::getLocalVersion()
             if(!versionJson.exists())
             {
                 reject();
+                return;
             }
 
-            versionJson.open(QFile::ReadOnly);
-            QJsonDocument d = QJsonDocument::fromJson(versionJson.readAll());
+            if(!versionJson.open(QFile::ReadOnly))
+            {
+                reject();
+                return;
+            }
+            QJsonParseError error{};
+            QJsonDocument d = QJsonDocument::fromJson(versionJson.readAll(), &error);
             QJsonArray root = d.array();
-            if(root.count() > 0)
+            if(error.error == QJsonParseError::NoError && d.isArray() && root.count() > 0)
             {
                 versionJson.close();
                 resolve(AeqVersion(root[0].toObject()));
+                return;
             }
 
             versionJson.close();
@@ -163,10 +197,22 @@ QtPromise::QPromise<QVector<AeqMeasurement>> AeqPackageManager::getLocalIndex()
             if(!indexJson.exists())
             {
                 reject();
+                return;
             }
 
-            indexJson.open(QFile::ReadOnly);
-            QJsonDocument d = QJsonDocument::fromJson(indexJson.readAll());
+            if(!indexJson.open(QFile::ReadOnly))
+            {
+                reject();
+                return;
+            }
+            QJsonParseError error{};
+            QJsonDocument d = QJsonDocument::fromJson(indexJson.readAll(), &error);
+            if(error.error != QJsonParseError::NoError || !d.isArray())
+            {
+                indexJson.close();
+                reject();
+                return;
+            }
             QJsonArray root = d.array();
 
             QVector<AeqMeasurement> items;
@@ -183,5 +229,7 @@ QtPromise::QPromise<QVector<AeqMeasurement>> AeqPackageManager::getLocalIndex()
 
 QString AeqPackageManager::databaseDirectory()
 {
+    if(!databaseOverride.isEmpty())
+        return databaseOverride;
     return AppConfig::instance().getCachePath("autoeq");
 }

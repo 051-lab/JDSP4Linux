@@ -3,16 +3,114 @@
 #include "utils/Log.h"
 
 #include <QFileInfo>
+#include <QSet>
 #include <QRegularExpression>
+
+static QRegularExpression assignmentRegex(const QString &key)
+{
+    return QRegularExpression(QStringLiteral("(?:^|\\n)[\\t ]*%1\\s*=\\s*(?<val>[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))\\s*;")
+                                   .arg(QRegularExpression::escape(key)));
+}
+
+static QString maskCommentsAndStrings(const QString &source)
+{
+    QString masked = source;
+    bool blockComment = false;
+    bool lineComment = false;
+    bool stringLiteral = false;
+    bool escaped = false;
+
+    for (int i = 0; i < source.size(); ++i)
+    {
+        const QChar ch = source.at(i);
+        const QChar next = i + 1 < source.size() ? source.at(i + 1) : QChar();
+
+        if (lineComment)
+        {
+            if (ch == '\n' || ch == '\r')
+                lineComment = false;
+            else
+                masked[i] = QChar(0x01);
+            continue;
+        }
+        if (blockComment)
+        {
+            if (ch == '*' && next == '/')
+            {
+                masked[i] = QChar(0x01);
+                masked[++i] = QChar(0x01);
+                blockComment = false;
+            }
+            else if (ch != '\n' && ch != '\r')
+                masked[i] = QChar(0x01);
+            continue;
+        }
+        if (stringLiteral)
+        {
+            if (ch == '\n' || ch == '\r')
+                stringLiteral = false;
+            else
+                masked[i] = ' ';
+            if (escaped)
+                escaped = false;
+            else if (ch == '\\')
+                escaped = true;
+            else if (ch == '"')
+                stringLiteral = false;
+            continue;
+        }
+        if (ch == '/' && next == '/')
+        {
+            masked[i] = QChar(0x01);
+            masked[++i] = QChar(0x01);
+            lineComment = true;
+        }
+        else if (ch == '/' && next == '*')
+        {
+            masked[i] = QChar(0x01);
+            masked[++i] = QChar(0x01);
+            blockComment = true;
+        }
+        else if (ch == '"')
+        {
+            masked[i] = QChar(0x01);
+            stringLiteral = true;
+        }
+    }
+    return masked;
+}
+
+static int decimalPlaces(float value)
+{
+    for (int places = 0; places <= 6; ++places)
+    {
+        const double scale = std::pow(10.0, places);
+        if (std::abs(static_cast<double>(value) * scale -
+                     std::round(static_cast<double>(value) * scale)) < 0.000001)
+            return places;
+    }
+    return 6;
+}
 
 EELParser::EELParser()
 {}
 
-void EELParser::loadFile(QString path)
+EELParser::~EELParser()
 {
+    clearProperties();
+}
+
+bool EELParser::loadFile(QString path)
+{
+    diagnostics.clear();
     container.path = path;
     container.code = "";
-    container.reloadCode();
+    if (!container.reloadCode())
+    {
+        Log::warning(QString("Failed to load EEL file: %1").arg(path));
+        clearProperties();
+        return false;
+    }
 
     clearProperties();
 
@@ -20,6 +118,7 @@ void EELParser::loadFile(QString path)
 
     QRegularExpression descRe(R"((?<var>\w+):(?<def>-?\d+\.?\d*)?<(?<min>-?\d+\.?\d*),(?<max>-?\d+\.?\d*),?(?<step>-?\d+\.?\d*)?>(?<desc>[\s\S][^\n]*))");
     QRegularExpression descListRe(R"((?<var>\w+):(?<def>-?\d+\.?\d*)?<(?<min>-?\d+\.?\d*),(?<max>-?\d+\.?\d*),?(?<step>-?\d+\.?\d*)?\{(?<opt>[^\}]*)\}>(?<desc>[\s\S][^\n]*))");
+    QSet<QString> describedKeys;
 
     for (const auto &line : container.code.split("\n"))
     {
@@ -38,6 +137,9 @@ void EELParser::loadFile(QString path)
                 QString def   = match.captured("def");
                 QString desc  = match.captured("desc").trimmed();
 
+                if (describedKeys.contains(key))
+                    continue;
+
                 if (step.isEmpty())
                 {
                     step = "1";
@@ -47,17 +149,30 @@ void EELParser::loadFile(QString path)
 
                 if (current == NORESULT)
                 {
-                    break;
+                    diagnostics.append(QString("Control '%1' has no editable numeric assignment").arg(key));
+                    continue;
                 }
 
+                bool minOk = false;
+                bool maxOk = false;
+                bool currentOk = false;
+                const int minimum = min.toInt(&minOk);
+                const int maximum = max.toInt(&maxOk);
+                const int currentValue = current.toInt(&currentOk);
                 bool defOk = false;
                 std::optional<float> defaultValue = def.toFloat(&defOk);
-                if(def.isEmpty() || !defOk)
+                if ((!def.isEmpty() && !defOk) || !minOk || !maxOk || !currentOk ||
+                    minimum > maximum || currentValue < minimum || currentValue > maximum ||
+                    (!def.isEmpty() && (defaultValue.value() < minimum || defaultValue.value() > maximum)) ||
+                    opt.split(',', Qt::SkipEmptyParts).isEmpty())
+                    continue;
+                if(def.isEmpty())
                     defaultValue = std::nullopt;
 
                 EELListProperty *prop = new EELListProperty(key, desc, defaultValue, current.toInt(),
-                                                            min.toInt(), max.toInt(), opt.split(',', Qt::SkipEmptyParts));
+                                                            minimum, maximum, opt.split(',', Qt::SkipEmptyParts));
                 properties.append(prop);
+                describedKeys.insert(key);
                 continue;
             }
 
@@ -77,6 +192,9 @@ void EELParser::loadFile(QString path)
                 QString def   = match.captured("def");
                 QString desc  = match.captured("desc").trimmed();
 
+                if (describedKeys.contains(key))
+                    continue;
+
                 if (step.isEmpty())
                 {
                     step = "0.1";
@@ -86,34 +204,51 @@ void EELParser::loadFile(QString path)
 
                 if (current == NORESULT)
                 {
-                    break;
+                    diagnostics.append(QString("Control '%1' has no editable numeric assignment").arg(key));
+                    continue;
                 }
 
+                bool minOk = false;
+                bool maxOk = false;
+                bool stepOk = false;
+                bool currentOk = false;
+                const float minimum = min.toFloat(&minOk);
+                const float maximum = max.toFloat(&maxOk);
+                const float parsedStep = step.toFloat(&stepOk);
+                const float currentValue = current.toFloat(&currentOk);
                 bool defOk = false;
                 std::optional<float> defaultValue = def.toFloat(&defOk);
-                if(def.isEmpty() || !defOk)
+                if ((!def.isEmpty() && !defOk) || !minOk || !maxOk || !stepOk || !currentOk ||
+                    !std::isfinite(minimum) || !std::isfinite(maximum) || !std::isfinite(parsedStep) ||
+                    !std::isfinite(currentValue) || minimum > maximum || parsedStep <= 0 ||
+                    currentValue < minimum || currentValue > maximum ||
+                    (!def.isEmpty() && (defaultValue.value() < minimum || defaultValue.value() > maximum)))
+                    continue;
+                if(def.isEmpty())
                     defaultValue = std::nullopt;
 
                 EELNumberRangeProperty<float> *prop = new EELNumberRangeProperty<float>(key, desc, defaultValue, current.toFloat(),
-                                                                                        min.toFloat(), max.toFloat(),
-                                                                                        step.toFloat());
+                                                                                        minimum, maximum, parsedStep);
                 properties.append(prop);
+                describedKeys.insert(key);
                 continue;
             }
         }
     }
 
+    return true;
 }
 
 bool EELParser::saveFile()
 {
+    lastSaveError.clear();
     if (!isFileLoaded())
     {
+        lastSaveError = QStringLiteral("No EEL file is currently loaded.");
         return false;
     }
 
-    container.save();
-    return true;
+    return container.save(QString(), nullptr, &lastSaveError);
 }
 
 bool EELParser::loadDefaults()
@@ -222,8 +357,19 @@ EELProperties EELParser::getProperties()
     return properties;
 }
 
+QStringList EELParser::getDiagnostics() const
+{
+    return diagnostics;
+}
+
+QString EELParser::getLastSaveError() const
+{
+    return lastSaveError;
+}
+
 bool EELParser::manipulateProperty(EELBaseProperty *propbase)
 {
+    lastSaveError.clear();
     if (propbase->getType() == EELPropertyType::NumberRange)
     {
         EELNumberRangeProperty<float> *prop = dynamic_cast<EELNumberRangeProperty<float>*>(propbase);
@@ -235,12 +381,17 @@ bool EELParser::manipulateProperty(EELBaseProperty *propbase)
         }
         else
         {
-            value = QString::number(prop->getValue(), 'f', 2);
+            value = QString::number(prop->getValue(), 'f', decimalPlaces(prop->getStep()));
         }
 
         bool replace_res = replaceVariable(prop->getKey(), value, prop->getType());
-        bool save_res    = saveFile();
-        return replace_res && save_res;
+        if (!replace_res)
+        {
+            lastSaveError = QStringLiteral("Unable to update the assignment for '%1' in %2.")
+                                .arg(prop->getKey(), container.path);
+            return false;
+        }
+        return saveFile();
     }
     else if (propbase->getType() == EELPropertyType::List)
     {
@@ -248,8 +399,13 @@ bool EELParser::manipulateProperty(EELBaseProperty *propbase)
         QString          value = QString::number((int) prop->getValue());
 
         bool replace_res = replaceVariable(prop->getKey(), value, prop->getType());
-        bool save_res    = saveFile();
-        return replace_res && save_res;
+        if (!replace_res)
+        {
+            lastSaveError = QStringLiteral("Unable to update the assignment for '%1' in %2.")
+                                .arg(prop->getKey(), container.path);
+            return false;
+        }
+        return saveFile();
     }
 
     return false;
@@ -262,9 +418,10 @@ QString EELParser::findVariable(QString         key,
 {
     if (type == EELPropertyType::NumberRange || type == EELPropertyType::List)
     {
-        QRegularExpression re(QString(R"(%1\s*=\s*(?<val>-?\d+\.?\d*)\s*;)").arg(key));
+        QRegularExpression re = assignmentRegex(key);
+        const QString maskedCode = maskCommentsAndStrings(container.code);
 
-        for (const auto &line : container.code.split("\n"))
+        for (const auto &line : maskedCode.split("\n"))
         {
             auto matchIterator = re.globalMatch(line);
 
@@ -286,8 +443,9 @@ bool EELParser::replaceVariable(QString         key,
 {
     if (type == EELPropertyType::NumberRange || type == EELPropertyType::List)
     {
-        QRegularExpression re(QString(R"(%1\s*=\s*(?<val>-?\d+\.?\d*)\s*;)").arg(key));
-        auto               matchIterator = re.globalMatch(container.code);
+        QRegularExpression re = assignmentRegex(key);
+        const QString maskedCode = maskCommentsAndStrings(container.code);
+        auto               matchIterator = re.globalMatch(maskedCode);
 
         if (matchIterator.hasNext())
         {
@@ -312,4 +470,3 @@ void EELParser::clearProperties()
     }
     properties.clear();
 }
-
